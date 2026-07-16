@@ -2826,7 +2826,17 @@ export function useSessionActions({
         // Navigate throw or earlier failure after arming pending — never leave
         // creatingSessionRef stuck true.
         releaseCreatingSessionGuard()
-        notifyError(err, copy.branchFailed)
+        // Backend restart / WS drop mid-RPC leaves the branch uncreated with no
+        // recovery path. Surface a persistent error with a retry action so the
+        // user can re-attempt without re-doing the whole branch flow.
+        notifyError(err, copy.branchFailed, {
+          action: {
+            label: t.common.retry,
+            onClick: () => {
+              void forkBranch(branchMessages, sourceSessionId, parentStoredId, cwd, profile, branchCount, ownerRoute)
+            }
+          }
+        })
 
         return false
       } finally {
@@ -2843,6 +2853,7 @@ export function useSessionActions({
       requestGateway,
       resumeSession,
       selectedStoredSessionIdRef,
+      t,
       updateSessionState
     ]
   )
