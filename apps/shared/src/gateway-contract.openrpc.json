@@ -29719,6 +29719,18 @@
             "default": false,
             "title": "Follow Profile Config",
             "type": "boolean"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Idempotency Key"
           }
         },
         "title": "SessionCreateParams",
