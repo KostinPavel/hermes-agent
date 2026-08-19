@@ -384,9 +384,7 @@ export function useComposerSubmit({
         enqueueQueuedPrompt(activeQueueSessionKey, {
           text: frozen.displayText,
           attachments: [],
-          ...(hasTerminalTransport
-            ? { displayText: frozen.displayText, frozenTransport: frozen.transportText }
-            : {})
+          ...(hasTerminalTransport ? { displayText: frozen.displayText, frozenTransport: frozen.transportText } : {})
         })
       } else {
         loadIntoComposer(frozen.displayText, [])

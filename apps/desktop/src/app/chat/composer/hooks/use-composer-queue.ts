@@ -19,6 +19,7 @@ import {
   promoteQueuedPrompt,
   type QueuedPromptEntry,
   removeQueuedPrompt,
+  resolveQueuedPromptTransport,
   shouldAutoDrain,
   unparkQueuedPrompts,
   updateQueuedPrompt,
@@ -31,12 +32,16 @@ import { cloneAttachments, type QueueEditState } from '../composer-utils'
 import { useComposerScope } from '../scope'
 import type { ChatBarProps } from '../types'
 
-/** Freeze terminal chips for queue persistence. Returns null when a chip has
- *  no selection payload (caller should abort without mutating the queue). */
+/** Freeze terminal chips for queue persistence. Persists the chip/display
+ *  form; fenced selection CONTENTS stay in the runtime map. Returns null when
+ *  a chip has no selection payload (caller should abort without mutating the queue). */
 function freezeQueuedDraftText(
   text: string,
-  copy: { terminalSelectionMissingTitle: string; terminalSelectionMissingBody: string }
-): null | { text: string; displayText?: string } {
+  copy: {
+    terminalSelectionMissingTitle: string
+    terminalSelectionMissingBody: string
+  }
+): null | { text: string; displayText?: string; frozenTransport?: string } {
   const trimmed = text.trim()
 
   if (!trimmed) {
@@ -55,9 +60,12 @@ function freezeQueuedDraftText(
     return null
   }
 
+  const hasTerminalTransport = frozen.displayText !== frozen.transportText
+
   return {
-    text: frozen.transportText,
-    ...(frozen.displayText !== frozen.transportText ? { displayText: frozen.displayText } : {})
+    // Persist chips (or ordinary text). Never persist fenced selection contents.
+    text: frozen.displayText,
+    ...(hasTerminalTransport ? { displayText: frozen.displayText, frozenTransport: frozen.transportText } : {})
   }
 }
 
@@ -178,7 +186,8 @@ export function useComposerQueue({
     const saved = updateQueuedPrompt(queueEdit.sessionKey, queueEdit.entryId, {
       attachments: cloneAttachments(attachments),
       text: frozen.text,
-      displayText: frozen.displayText ?? null
+      displayText: frozen.displayText ?? null,
+      frozenTransport: frozen.frozenTransport ?? null
     })
 
     const next = queuedPrompts[target]
@@ -232,7 +241,8 @@ export function useComposerQueue({
       const saved = updateQueuedPrompt(queueEdit.sessionKey, queueEdit.entryId, {
         attachments: next,
         text: frozen.text,
-        displayText: frozen.displayText ?? null
+        displayText: frozen.displayText ?? null,
+        frozenTransport: frozen.frozenTransport ?? null
       })
       triggerHaptic(saved ? 'success' : 'selection')
     } else {
@@ -266,9 +276,9 @@ export function useComposerQueue({
       return false
     }
 
-    // Freeze `@terminal:` chips into transport text + chip displayText before
-    // enqueue. The selection map is memory-only and label-colliding; drain
-    // must never re-resolve against it (#77078).
+    // Freeze `@terminal:` chips at enqueue. Persist the chip form; keep the
+    // fenced selection in the runtime map so drain never re-resolves the live
+    // label map and localStorage never stores terminal CONTENTS (#77078).
     const frozen = text.trim() ? freezeQueuedDraftText(text, t.composer) : { text }
 
     if (!frozen) {
@@ -279,7 +289,8 @@ export function useComposerQueue({
       !enqueueQueuedPrompt(activeQueueSessionKey, {
         text: frozen.text,
         attachments,
-        ...(frozen.displayText ? { displayText: frozen.displayText } : {})
+        ...(frozen.displayText ? { displayText: frozen.displayText } : {}),
+        ...(frozen.frozenTransport ? { frozenTransport: frozen.frozenTransport } : {})
       })
     ) {
       return false
@@ -317,10 +328,23 @@ export function useComposerQueue({
             return null
           }
 
+          const resolved = resolveQueuedPromptTransport(entry)
+
+          if (!resolved.ok) {
+            notify({
+              kind: 'warning',
+              title: t.composer.terminalSelectionMissingTitle,
+              message: t.composer.queuedTerminalSelectionExpiredBody
+            })
+            drainFailuresRef.current.set(entry.id, MAX_AUTO_DRAIN_ATTEMPTS)
+
+            return false
+          }
+
           const accepted = await Promise.resolve(
-            onSubmit(entry.text, {
+            onSubmit(resolved.transportText, {
               attachments: entry.attachments,
-              ...(entry.displayText ? { displayText: entry.displayText } : {}),
+              ...(resolved.displayText ? { displayText: resolved.displayText } : {}),
               ...(entry.displayKind ? { displayKind: entry.displayKind } : {}),
               fromQueue: true,
               sessionId: drainRuntimeSessionId,
@@ -348,7 +372,7 @@ export function useComposerQueue({
         drainingQueueRef.current = false
       }
     },
-    [activeQueueSessionKey, onSubmit, sessionId]
+    [activeQueueSessionKey, onSubmit, sessionId, t.composer]
   )
 
   const pickDrainHead = useCallback(
@@ -412,9 +436,21 @@ export function useComposerQueue({
         return false
       }
 
+      const resolved = resolveQueuedPromptTransport(entry)
+
+      if (!resolved.ok) {
+        notify({
+          kind: 'warning',
+          title: t.composer.terminalSelectionMissingTitle,
+          message: t.composer.queuedTerminalSelectionExpiredBody
+        })
+
+        return false
+      }
+
       triggerHaptic('submit')
 
-      const accepted = await Promise.resolve(onSteer(entry.text))
+      const accepted = await Promise.resolve(onSteer(resolved.transportText))
 
       // Rejected (turn already settling, gateway said no): leave the entry
       // queued exactly where it was — the settle drain picks it up, so the
@@ -431,7 +467,7 @@ export function useComposerQueue({
 
       return true
     },
-    [activeQueueSessionKey, busy, onSteer, queueEditRef]
+    [activeQueueSessionKey, busy, onSteer, queueEditRef, t.composer]
   )
 
   // Double-Enter while busy. The entry usually sits in the queue because the
