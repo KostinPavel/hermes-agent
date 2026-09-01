@@ -5327,6 +5327,8 @@ export const en: Translations = {
       skipped: 'Skipped',
       noAnswer: 'No answer',
       confirmAndContinueLabel: 'Confirm and continue',
+      singleSelectHint: 'Pick one',
+      multiSelectHint: 'Select all that apply',
       questionProgress: (answered, total) => `${answered} of ${total} answered`,
       notDelivered:
         "This question didn't reach the app, so it can't be answered here. Press Stop to end the turn, then reply in chat."
