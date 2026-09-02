@@ -3371,6 +3371,8 @@ export const ar = defineLocale({
       placeholder: 'اكتب إجابتك...',
       skip: 'تخطي',
       confirmAndContinueLabel: 'تأكيد ومتابعة',
+      singleSelectHint: 'اختر واحدا',
+      multiSelectHint: 'حدد كل ما ينطبق',
       questionProgress: (answered, total) => `تمت الإجابة على ${answered} من ${total}`
     },
     tool: {

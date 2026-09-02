@@ -4895,6 +4895,8 @@ export const zh = defineLocale({
       skipped: '已跳过',
       noAnswer: '未回答',
       confirmAndContinueLabel: '确认并继续',
+      singleSelectHint: '选一个',
+      multiSelectHint: '可多选',
       questionProgress: (answered, total) => `已回答 ${answered}/${total}`,
       notDelivered: '此问题未送达应用，无法在此回答。请按停止结束本轮，然后在聊天中回复。'
     },

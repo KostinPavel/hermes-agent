@@ -3942,6 +3942,8 @@ export const ja = defineLocale({
       skipped: 'スキップ済み',
       noAnswer: '回答なし',
       confirmAndContinueLabel: '確定して続行',
+      singleSelectHint: '1つ選ぶ',
+      multiSelectHint: '該当するものをすべて選択',
       questionProgress: (answered, total) => `${total}問中${answered}問回答済み`,
       notDelivered:
         'この質問はアプリに届かなかったため、ここでは回答できません。停止を押してターンを終了し、チャットで返信してください。'
