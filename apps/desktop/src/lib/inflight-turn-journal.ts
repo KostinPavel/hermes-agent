@@ -1087,3 +1087,32 @@ export function clearInFlightTurnJournal(storedSessionId: null | string): void {
 
   removeSnapshot(storedSessionId)
 }
+
+/** Purge journaled in-flight tails for a deleted session.
+ *
+ *  Deleting a session removes its authoritative history, but the journal
+ *  kept the deleted turn's user prompt and tool calls in localStorage until
+ *  the entry aged out — the delete gesture did not reach the local copy (the
+ *  sibling `composer-queue` store was already cleared on delete; this one
+ *  was missed, which is the #77486 journal requirement).
+ *
+ *  A session has more than one id, so callers pass every id they hold: the
+ *  stored tip, the durable lineage root, and (the sidebar delete) the
+ *  closing runtime id. The store keys on the stored id, so each id drains
+ *  its own key in a single pass; entries written by an older build under a
+ *  pre-rotation tip the caller no longer holds are NOT reachable this way —
+ *  those age out under `MAX_AGE_MS`, which is the retention floor this file
+ *  already documents. */
+export function purgeInFlightTurnJournals(sessionIds: readonly (null | string | undefined)[]): void {
+  const store = storage()
+
+  if (!store) {
+    return
+  }
+
+  for (const storedSessionId of sessionIds) {
+    if (storedSessionId) {
+      clearInFlightTurnJournal(storedSessionId)
+    }
+  }
+}
