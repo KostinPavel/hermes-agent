@@ -1500,8 +1500,10 @@ export function ChatBar({
                   <ContribSlot area={COMPOSER_AREAS.top} />
                   <RestoredDraftNotice
                     freshDraft={activeQueueSessionKey === null}
+                    onRestored={text => loadIntoComposer(text, scope.attachments.$attachments.get())}
                     onUndone={clearDraft}
                     readLiveText={syncDraftFromEditor}
+                    sessionKey={activeQueueSessionKey}
                   />
                   <VoiceActivity state={voiceActivityState} />
                   <VoicePlaybackActivity />
