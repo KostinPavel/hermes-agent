@@ -3147,12 +3147,17 @@ describe('branchStoredSession desktop source tagging', () => {
     )
     await waitFor(() => expect(branchCurrentSession).not.toBeNull())
 
+    const notificationsBefore = $notifications.get().length
+
     await expect(branchCurrentSession!(undefined, 'vanished-tile-runtime')).resolves.toBe(false)
     // Fail closed: no RPC at all, and nothing that could have read the
     // foreground transcript or minted a branch from it.
     expect(requestGateway).not.toHaveBeenCalled()
     expect(bindGatewayRequestForOwner).not.toHaveBeenCalled()
-    expect($notifications.get()).toEqual([
+    // Only the notice THIS call added (notices prepend) — earlier tests in
+    // the file leave their own notices in the store.
+    const added = $notifications.get()
+    expect(added.slice(0, added.length - notificationsBefore)).toEqual([
       expect.objectContaining({ kind: 'warning', title: 'Nothing to branch' })
     ])
   })
@@ -3193,10 +3198,15 @@ describe('branchStoredSession desktop source tagging', () => {
     )
     await waitFor(() => expect(branchCurrentSession).not.toBeNull())
 
+    const notificationsBefore = $notifications.get().length
+
     await expect(branchCurrentSession!(undefined, 'tile-runtime')).resolves.toBe(false)
     expect(requestGateway).not.toHaveBeenCalled()
     expect(bindGatewayRequestForOwner).not.toHaveBeenCalled()
-    expect($notifications.get()).toEqual([
+    // Only the notice THIS call added (notices prepend) — earlier tests in
+    // the file leave their own notices in the store.
+    const added = $notifications.get()
+    expect(added.slice(0, added.length - notificationsBefore)).toEqual([
       expect.objectContaining({ kind: 'warning', title: 'Session busy' })
     ])
   })
