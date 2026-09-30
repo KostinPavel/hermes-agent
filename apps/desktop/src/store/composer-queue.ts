@@ -116,20 +116,15 @@ const dropFrozenTransportsRemovedFrom = (previous: QueuedPromptEntry[], next: Qu
 
 const toPersistedEntry = (entry: QueuedPromptEntry): QueuedPromptEntry => {
   const frozen = frozenQueuedTransportById.get(entry.id)?.trim()
-  const persisted: QueuedPromptEntry = {
-    id: entry.id,
-    text: entry.text,
-    attachments: entry.attachments,
-    queuedAt: entry.queuedAt,
-    ...(entry.displayText ? { displayText: entry.displayText } : {})
-  }
 
   if (!frozen) {
-    return persisted
+    return entry
   }
 
   // Never write fenced selection CONTENTS into localStorage. Prefer the chip
   // form already on the entry; if `text` accidentally holds transport, swap it.
+  const persisted: QueuedPromptEntry = { ...entry }
+
   if (persisted.text === frozen) {
     persisted.text = persisted.displayText ?? ''
   }
