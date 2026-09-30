@@ -1,7 +1,7 @@
 import type { BillingBlock } from '@hermes/shared'
 
-import { burstVibeHearts } from '@/components/chat/vibe-hearts'
 import { recoverClarifyDrafts } from '@/app/session/clarify-draft-recovery'
+import { burstVibeHearts } from '@/components/chat/vibe-hearts'
 import { reportFirstBuildTurnComplete } from '@/components/onboarding-chat/first-build'
 import { translateNow } from '@/i18n'
 import { coerceGatewayText, coerceThinkingText } from '@/lib/chat-runtime'

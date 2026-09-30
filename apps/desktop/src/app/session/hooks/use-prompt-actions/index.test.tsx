@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getLatestSessionMessages, getSession } from '@/hermes'
 import { textPart, toChatMessages } from '@/lib/chat-messages'
 import { createClientSessionState } from '@/lib/chat-runtime'
-import { $compactingSessions, setSessionCompacting } from '@/store/compaction'
 import { $clarifyRequests, setClarifyRequest, stageClarifyAnswer } from '@/store/clarify'
+import { $compactingSessions, setSessionCompacting } from '@/store/compaction'
 import {
   $composerAttachments,
   $composerDraft,

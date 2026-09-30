@@ -141,6 +141,7 @@ export const sessionClarifyRequest = (sessionId: string | null) =>
 export function setClarifyRequest(request: ClarifyRequest): void {
   const key = keyFor(request.sessionId)
   const current = $clarifyRequests.get()[key]
+
   // The shared channel can re-deliver the SAME request (reconnect replay,
   // resume open_requests). A fresh park must not look like a fresh card to a
   // user mid-answer: carry the in-progress staging across (#58783).

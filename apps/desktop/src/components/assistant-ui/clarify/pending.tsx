@@ -85,6 +85,7 @@ export function ClarifyToolPending({
   // locked-answers replay below seeds into the SAME staging so a confirmed
   // server-side answer and a locally typed one read through one path.
   const stagedFromStore = request?.stagedAnswers ?? EMPTY_STAGED
+
   const stageQuestion = useCallback(
     (qid: string, stage: { choices: string[]; draft: string } | null) => {
       if (request) {
