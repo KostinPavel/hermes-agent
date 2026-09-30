@@ -1,7 +1,7 @@
 import { writeAgentTerminalChunk } from '@/app/right-sidebar/terminal/agent-terminal-stream'
 import { closeAgentTerminalByProc } from '@/app/right-sidebar/terminal/terminals'
 import { applyDesktopLayoutPreset, revealDesktopPane } from '@/store/pane-focus'
-import { recordAgentReaction, reactionOverlayScope } from '@/store/reactions-local'
+import { reactionOverlayScope, recordAgentReaction } from '@/store/reactions-local'
 import { setMessages } from '@/store/session'
 import { $tipsEnabled, type ActiveTip, agentTipId, showTip } from '@/store/tips'
 

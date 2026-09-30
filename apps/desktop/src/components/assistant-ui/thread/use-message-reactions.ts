@@ -1,5 +1,5 @@
-import { registryBackendScopeKey } from '@hermes/shared'
 import { useAuiState, useMessageRuntime } from '@assistant-ui/react'
+import { registryBackendScopeKey } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import { type MouseEvent, useCallback } from 'react'
 
@@ -106,8 +106,10 @@ export function useMessageReactions(
   // on source A can never repaint a coincidental same-numbered row on
   // source B (a tile from another connection, a cross-source resume).
   const activeProfile = useStore($activeGatewayProfile)
+
   const viewScope =
     sessionEventScopeFor(runtimeSessionId) ?? registryBackendScopeKey(activeGatewayConnectionId(), activeProfile)
+
   const agentLive = rowId === undefined ? undefined : agentLiveReactions(agentAll, rowId, viewScope)
 
   return {

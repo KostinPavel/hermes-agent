@@ -1,6 +1,5 @@
-import { atom } from 'nanostores'
-
 import { registryBackendScopeKey } from '@hermes/shared'
+import { atom } from 'nanostores'
 
 import { $activeGatewayProfile } from '@/store/profile'
 import { applyReaction } from '@/store/reactions'
