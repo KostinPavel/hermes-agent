@@ -33,7 +33,8 @@ import {
   cloneAttachments,
   DRAFT_PERSIST_DEBOUNCE_MS,
   isPendingDraftPersistCurrent,
-  type QueueEditState
+  type QueueEditState,
+  queuedEditStashPlan
 } from '../composer-utils'
 import {
   ackComposerInsert,
@@ -541,12 +542,13 @@ export function useComposerDraft({
       const editing = queueEditStateRef.current
 
       if (editing?.sessionKey === activeQueueSessionKey) {
-        // #88621: a dirty edit buffer is the user's latest work — stash the
-        // LIVE text (what the editor actually holds), not the pre-edit
-        // snapshot. A clean buffer (still equals the entry it was editing)
-        // keeps the snapshot: the edit never happened as far as the draft is
-        // concerned, and the pre-edit words must come back on return.
-        stashAt(activeQueueSessionKey, latestText === editing.entryText ? editing.draft : latestText)
+        // #88621: the scope-swap stash for a queued edit in progress. Clean
+        // buffer → pre-edit snapshot (text + its own attachments); dirty
+        // buffer → the live text and attachments the editor holds. See
+        // queuedEditStashPlan for why the clean branch must NOT pick up the
+        // live (queued-entry) chips.
+        const plan = queuedEditStashPlan(editing, latestText)
+        stashAt(activeQueueSessionKey, plan.text, plan.attachments)
       } else if (!isBrowsingHistory(sessionId)) {
         stashAt(activeQueueSessionKey, latestText)
       }

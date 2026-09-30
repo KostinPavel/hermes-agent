@@ -68,6 +68,110 @@ function ProbeHarness({ activeQueueSessionKey, onLayoutSnapshot, onTextSnapshot,
   return null
 }
 
+
+interface QueueEditProbeProps {
+  activeQueueSessionKey: string | null
+  onSnapshot: () => void
+  queueEditRef: { current: QueueEditState | null }
+  sessionId: string
+}
+
+function QueueEditProbe({ activeQueueSessionKey, onSnapshot, queueEditRef, sessionId }: QueueEditProbeProps) {
+  useComposerDraft({
+    activeQueueSessionKey,
+    focusKey: null,
+    inputDisabled: false,
+    queueEditRef,
+    sessionId
+  })
+
+  useLayoutEffect(() => {
+    onSnapshot()
+  })
+
+  return null
+}
+
+describe('useComposerDraft — a clean queued edit restores the pre-edit draft with its own attachments (#88621)', () => {
+  afterEach(() => {
+    cleanup()
+    mainComposerScope.clear()
+    clearSessionDraft('edit-session-a')
+    clearSessionDraft('edit-session-b')
+  })
+
+  it('A → B → A with an untouched edit keeps the original draft text AND its attachments', () => {
+    // Opening a queued entry for edit, changing nothing, and switching away
+    // must bring the ORIGINAL draft (text + attachments) back on return —
+    // not the original text wearing the queued entry's attachments. The
+    // editor is the source of truth: syncDraftFromEditor reads the DOM, and
+    // the mounted composer paints the stashed A draft, so seed the editor DOM
+    // with the entry text (what beginQueuedEdit paints) and keep the buffer
+    // clean relative to that entry.
+    const originalAttachment: ComposerAttachment = { id: 'file:orig', kind: 'file', label: 'draft.txt' }
+    const queuedAttachment: ComposerAttachment = { id: 'file:queued', kind: 'file', label: 'queued.txt' }
+
+    stashSessionDraft('edit-session-a', 'original draft', [originalAttachment])
+
+    const queueEditRef: { current: QueueEditState | null } = {
+      current: {
+        attachments: [originalAttachment],
+        draft: 'original draft',
+        entryId: 'entry-1',
+        // The editor holds exactly the entry's text: beginQueuedEdit painted
+        // it and the user typed nothing (clean buffer). The harness composer
+        // loads the stashed draft at mount, so the entry under edit shares
+        // that text here.
+        entryText: 'original draft',
+        sessionKey: 'edit-session-a'
+      }
+    }
+
+    const { rerender } = render(
+      <QueueEditProbe
+        activeQueueSessionKey="edit-session-a"
+        onSnapshot={() => undefined}
+        queueEditRef={queueEditRef}
+        sessionId="edit-session-a"
+      />
+    )
+
+    // The live scope shows the queued entry's chips (painted at
+    // beginQueuedEdit) — NOT the original draft's.
+    mainComposerScope.$attachments.set([queuedAttachment])
+
+    // Switch to B: the scope-swap cleanup stashes per the plan (clean →
+    // pre-edit snapshot text + its OWN attachments).
+    act(() => {
+      rerender(
+        <QueueEditProbe
+          activeQueueSessionKey="edit-session-b"
+          onSnapshot={() => undefined}
+          queueEditRef={queueEditRef}
+          sessionId="edit-session-b"
+        />
+      )
+    })
+
+    // Back to A: the stash must be the pre-edit draft with ITS OWN
+    // attachments — the queued entry's chips must not have been grafted on.
+    act(() => {
+      rerender(
+        <QueueEditProbe
+          activeQueueSessionKey="edit-session-a"
+          onSnapshot={() => undefined}
+          queueEditRef={queueEditRef}
+          sessionId="edit-session-a"
+        />
+      )
+    })
+
+    const restored = takeSessionDraft('edit-session-a')
+    expect(restored.text).toBe('original draft')
+    expect(restored.attachments).toEqual([originalAttachment])
+  })
+})
+
 describe('useComposerDraft — attachment scope stays coherent with the committed session on switch (#59305)', () => {
   afterEach(() => {
     cleanup()

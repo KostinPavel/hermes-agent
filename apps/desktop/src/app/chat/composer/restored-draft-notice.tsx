@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n'
 import {
   $restoredDraftNotice,
-  $salvagedEditNotice,
+  $salvagedEditNoticesBySession,
   dismissRestoredDraftNotice,
   dismissSalvagedEdit,
   undoRestoredDraft,
@@ -35,10 +35,17 @@ interface RestoredDraftNoticeProps {
  */
 export function RestoredDraftNotice({ freshDraft, sessionKey, onUndone, onRestored, readLiveText }: RestoredDraftNoticeProps) {
   const notice = useStore($restoredDraftNotice)
-  const salvaged = useStore($salvagedEditNotice)
+  const salvagedBySession = useStore($salvagedEditNoticesBySession)
   const { t } = useI18n()
 
-  if (salvaged && sessionKey && salvaged.sessionKey === sessionKey) {
+  const salvaged = sessionKey ? (salvagedBySession[sessionKey] ?? null) : null
+
+  if (salvaged) {
+    // On the vanished-entry teardown path the dirty buffer stayed in the
+    // editor: Undo would repaint what is already there. Offer no button that
+    // reads as a no-op — the notice is informational there (#88621).
+    const undoApplies = salvaged.currentText !== salvaged.undoText
+
     return (
       <div
         className="flex items-center justify-between gap-2 rounded-lg border border-[color-mix(in_srgb,var(--dt-composer-ring)_32%,transparent)] bg-accent/18 px-2 py-1"
@@ -47,24 +54,30 @@ export function RestoredDraftNotice({ freshDraft, sessionKey, onUndone, onRestor
       >
         <div className="min-w-0 text-[0.7rem] text-muted-foreground/88">{t.composer.salvagedEditNotice}</div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button
-            className="h-6 rounded-md px-2 text-[0.68rem]"
-            onClick={() => {
-              const text = undoSalvagedEdit(readLiveText())
+          {undoApplies && (
+            <Button
+              className="h-6 rounded-md px-2 text-[0.68rem]"
+              onClick={() => {
+                const text = sessionKey ? undoSalvagedEdit(sessionKey, readLiveText()) : null
 
-              if (text !== null) {
-                onRestored(text)
-              }
-            }}
-            type="button"
-            variant="ghost"
-          >
-            {t.composer.salvagedEditUndo}
-          </Button>
+                if (text !== null) {
+                  onRestored(text)
+                }
+              }}
+              type="button"
+              variant="ghost"
+            >
+              {t.composer.salvagedEditUndo}
+            </Button>
+          )}
           <Button
             aria-label={t.common.close}
             className="h-6 rounded-md px-2 text-[0.68rem]"
-            onClick={dismissSalvagedEdit}
+            onClick={() => {
+              if (sessionKey) {
+                dismissSalvagedEdit(sessionKey)
+              }
+            }}
             type="button"
             variant="ghost"
           >

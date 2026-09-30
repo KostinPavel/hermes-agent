@@ -215,6 +215,26 @@ export interface QueueEditState {
 
 export const cloneAttachments = (attachments: ComposerAttachment[]) => attachments.map(a => ({ ...a }))
 
+/**
+ * What a scope swap must stash for a queued edit in progress (#88621): a
+ * clean buffer (the editor still shows the entry it was editing) restores the
+ * PRE-EDIT snapshot — text AND its own attachments, never the live (queued
+ * entry) chips, or the old draft would come back wearing another payload's
+ * attachments. A dirty buffer keeps the user's live text with the live
+ * attachments they see (never-lose-work; the duplication is the price of
+ * keeping both the buffer and the queue entry intact).
+ */
+export function queuedEditStashPlan(
+  editing: QueueEditState | null | undefined,
+  latestText: string
+): { attachments: ComposerAttachment[] | undefined; text: string } {
+  if (editing && latestText === editing.entryText) {
+    return { attachments: editing.attachments, text: editing.draft }
+  }
+
+  return { attachments: undefined, text: latestText }
+}
+
 export interface PendingDraftPersist {
   scope: string | null
   text: string

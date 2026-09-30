@@ -1,4 +1,4 @@
-import { atom } from 'nanostores'
+import { atom, computed } from 'nanostores'
 
 import { deriveDraftTitle } from '@/lib/draft-title'
 import { triggerHaptic } from '@/lib/haptics'
@@ -657,23 +657,36 @@ export function dismissRestoredDraftNotice(): void {
  * never destroyed. The notice is session-scoped: it renders only on the
  * composer whose session it names, offers (never hijacks) Undo, and fires
  * once — it is consumed by the undo or by dismissal.
+ *
+ * Records are keyed per session: two sessions can each lose an edit
+ * independently (a cancel in A, then a cancel in B), and B publishing its
+ * recovery must never erase A's — the composer notices render per session and
+ * each undo/dismiss consumes only its own session's record.
  */
 export interface SalvagedEditNotice {
-  /** The queue session key whose composer the edit buffer belonged to. */
-  sessionKey: string
   /** The text the composer shows now (pre-edit draft or empty). */
   currentText: string
   /** The salvaged typed text Undo would put back into the composer. */
   undoText: string
 }
 
-export const $salvagedEditNotice = atom<SalvagedEditNotice | null>(null)
+/** One pending salvage record per queue session key. */
+export const $salvagedEditNoticesBySession = atom<Readonly<Record<string, SalvagedEditNotice>>>({})
+
+/** Back-compat read surface: the record for `sessionKey`, when one exists. */
+export const $salvagedEditNotice = computed($salvagedEditNoticesBySession, bySession => {
+  const keys = Object.keys(bySession)
+
+  return keys.length === 1 ? (bySession[keys[0]!] ?? null) : null
+})
 
 /**
- * Publish the salvage notice. `currentText` is what the composer is showing
- * after the teardown (its pre-edit draft — the cancel repaint — or the dirty
- * buffer itself when the teardown left it in place); `undoText` is the typed
- * work that would otherwise be lost.
+ * Publish the salvage notice for `sessionKey`. `currentText` is what the
+ * composer is showing after the teardown (its pre-edit draft — the cancel
+ * repaint — or the dirty buffer itself when the teardown left it in place);
+ * `undoText` is the typed work that would otherwise be lost. Replacing a
+ * session's own earlier record is fine (latest recovery wins); other
+ * sessions' records are untouched.
  */
 export function announceSalvagedEdit(sessionKey: string | null | undefined, currentText: string, undoText: string): void {
   const key = sessionKey?.trim()
@@ -682,29 +695,44 @@ export function announceSalvagedEdit(sessionKey: string | null | undefined, curr
     return
   }
 
-  $salvagedEditNotice.set({ currentText, sessionKey: key, undoText })
+  $salvagedEditNoticesBySession.set({ ...$salvagedEditNoticesBySession.get(), [key]: { currentText, undoText } })
 }
 
-export function dismissSalvagedEdit(): void {
-  $salvagedEditNotice.set(null)
+export function dismissSalvagedEdit(sessionKey: string): void {
+  const bySession = $salvagedEditNoticesBySession.get()
+
+  if (!(sessionKey in bySession)) {
+    return
+  }
+
+  const next = { ...bySession }
+  delete next[sessionKey]
+  $salvagedEditNoticesBySession.set(next)
 }
 
 /**
  * Undo the teardown/restore: put the salvaged typed text back into the
  * composer. Only while the live text still equals `currentText` — once the
  * user has typed something new, Undo would destroy their work, so it only
- * dismisses. Returns the text to paint into the composer, or null when the
- * notice does not apply (nothing to undo or the draft has moved on).
+ * dismisses. Returns the text to paint into the composer, or null when there
+ * is no record for `sessionKey` or the draft has moved on.
  */
-export function undoSalvagedEdit(liveText: string): string | null {
-  const notice = $salvagedEditNotice.get()
-  $salvagedEditNotice.set(null)
+export function undoSalvagedEdit(sessionKey: string, liveText: string): string | null {
+  const notice = $salvagedEditNoticesBySession.get()[sessionKey]
+  dismissSalvagedEdit(sessionKey)
 
   if (!notice || liveText !== notice.currentText) {
     return null
   }
 
   return notice.undoText
+}
+
+/** The pending salvage record for a queue session key, if any. */
+export function getSalvagedEditNotice(sessionKey: string | null | undefined): SalvagedEditNotice | null {
+  const key = sessionKey?.trim()
+
+  return key ? ($salvagedEditNoticesBySession.get()[key] ?? null) : null
 }
 
 /**

@@ -43,6 +43,8 @@ interface UseComposerQueueArgs {
   onSubmit: ChatBarProps['onSubmit']
   queueEditRef: RefObject<QueueEditState | null>
   queueSessionKey: ChatBarProps['queueSessionKey']
+  /** Read the live editor DOM into draftRef and return it (#88621). */
+  readLiveText: () => string
   sessionId: string | null | undefined
 }
 
@@ -68,6 +70,7 @@ export function useComposerQueue({
   onSubmit,
   queueEditRef,
   queueSessionKey,
+  readLiveText,
   sessionId
 }: UseComposerQueueArgs) {
   const { t } = useI18n()
@@ -180,8 +183,14 @@ export function useComposerQueue({
       // buffer is the user's latest work and must stay recoverable (#88621):
       // publish the salvage notice before the repaint discards it. Only a
       // buffer that actually diverged from the entry it was editing counts.
-      if (draftRef.current !== queueEdit.entryText) {
-        announceSalvagedEdit(queueEdit.sessionKey, queueEdit.draft, draftRef.current)
+      // Read the LIVE editor: ordinary input schedules the DOM→draftRef flush
+      // through rAF, so draftRef alone can miss the last burst and misread a
+      // dirty buffer as clean (the text would then be destroyed by the
+      // repaint below with no notice offered).
+      const liveText = readLiveText()
+
+      if (liveText !== queueEdit.entryText) {
+        announceSalvagedEdit(queueEdit.sessionKey, queueEdit.draft, liveText)
       }
 
       triggerHaptic('cancel')
@@ -493,10 +502,16 @@ export function useComposerQueue({
         return
       }
 
-      if (draftRef.current !== queueEdit.entryText) {
+      // Read the LIVE editor before deciding: input flushes to draftRef on a
+      // rAF, so at this destructive boundary draftRef alone can still hold
+      // the pre-edit text while the DOM already shows the first typed burst
+      // — the dirty buffer would be misread as clean and repainted away.
+      const liveText = readLiveText()
+
+      if (liveText !== queueEdit.entryText) {
         // Dirty buffer, entry gone: keep the typed text where the user put
         // it — the editor IS the only copy — and offer it via the notice.
-        announceSalvagedEdit(queueEdit.sessionKey, draftRef.current, draftRef.current)
+        announceSalvagedEdit(queueEdit.sessionKey, liveText, liveText)
         setQueueEditSnapshot(null)
 
         return
@@ -509,7 +524,7 @@ export function useComposerQueue({
     }
 
     setQueueEditSnapshot(null)
-  }, [activeQueueSessionKey, editingQueuedPrompt, queueEdit, setQueueEditSnapshot]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeQueueSessionKey, editingQueuedPrompt, queueEdit, readLiveText, setQueueEditSnapshot]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     beginQueuedEdit,
