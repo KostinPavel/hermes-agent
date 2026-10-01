@@ -1,7 +1,7 @@
-"""Точка входа плагина skill-rag.
+"""skill-rag plugin entry point.
 
-Использует dependency injection для всех зависимостей.
-Переиспользует parse_frontmatter из agent/skill_utils.py.
+Uses dependency injection for all dependencies.
+Reuses parse_frontmatter from agent/skill_utils.py.
 """
 from __future__ import annotations
 
@@ -93,10 +93,10 @@ def _get_skills_in_context(history: List[Any]) -> Set[str]:
 
 
 def on_pre_llm_call(**kwargs: Any) -> Optional[Dict[str, str]]:
-    """Хук pre_llm_call — семантический retrieval скиллов.
+    """pre_llm_call hook — semantic skill retrieval.
 
-    Возвращает {"context": "..."} для инъекции в user message.
-    Контекст использует <available_skills> формат для трекинга.
+    Returns {"context": "..."} for injection into user message.
+    Context uses <available_skills> format for tracking.
     """
     hook_start = time.monotonic()
     logger.info("%s on_pre_llm_call: ENTERED, kwargs keys=%s", LOG_PREFIX, sorted(kwargs.keys()))
@@ -218,7 +218,7 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[Dict[str, str]]:
 
 
 def on_skill_lifecycle(**kwargs: Any) -> None:
-    """Хук on_skill_lifecycle — переиндексация при изменении скилла."""
+    """on_skill_lifecycle hook — re-index on skill change."""
     logger.info("%s on_skill_lifecycle: ENTERED, kwargs=%s", LOG_PREFIX, {k: v for k, v in kwargs.items() if k != 'payload'})
     try:
         _ensure_init()
@@ -241,7 +241,7 @@ def on_skill_lifecycle(**kwargs: Any) -> None:
 
 
 def register(ctx: Any) -> None:
-    """Регистрация плагина в Hermes PluginContext."""
+    """Plugin registration in Hermes PluginContext."""
     logger.info("%s register: ENTERED, ctx=%s type=%s", LOG_PREFIX, ctx, type(ctx).__name__)
     try:
         ctx.register_hook("pre_llm_call", on_pre_llm_call)

@@ -1,7 +1,7 @@
-"""Построение запроса, векторный поиск, сборка контекста.
+"""Query building, vector search, context assembly.
 
-Использует dependency injection и type annotations для тестирования.
-Формат рекомендаций аналогичен формату в системном промпте Hermes.
+Uses dependency injection and type annotations for testing.
+Recommendation format mirrors Hermes system prompt format.
 """
 from __future__ import annotations
 

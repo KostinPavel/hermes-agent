@@ -1,46 +1,46 @@
-"""Конфигурация плагина skill-rag.
+"""skill-rag plugin configuration.
 
-Все настройки в одном месте. Переменные окружения переопределяют значения по умолчанию.
+All settings in one place. Environment variables override defaults.
 """
 import os
 from pathlib import Path
 
 from hermes_constants import get_hermes_home, get_skills_dir
 
-# --- Пути ---
+# --- Paths ---
 # Hermes home (context override → HERMES_HOME env → platform default)
 HERMES_HOME = get_hermes_home()
-# Корневая директория скиллов Hermes (канонический get_skills_dir)
+# Skills root directory (canonical get_skills_dir)
 SKILLS_ROOT = get_skills_dir()
-# Резервная папка для БД (если skills/ недоступна для записи)
+# Fallback folder for the index DB (if skills/ is not writable)
 FALLBACK_INDEX_DIR = HERMES_HOME / "skills_index"
-DB_FILENAME = ".skill_rag.db"  # Имя SQLite-файла индекса
-FTS_TABLE = "skills_fts"  # Имя FTS5 виртуальной таблицы (хардкод — не менять)
-SKILL_FILE = "SKILL.md"  # Имя файла скилла для сканирования
+DB_FILENAME = ".skill_rag.db"  # SQLite index filename
+FTS_TABLE = "skills_fts"  # FTS5 virtual table name (hardcoded — do not change)
+SKILL_FILE = "SKILL.md"  # Skill file name for scanning
 
-# --- Провайдер эмбеддингов ---
+# --- Embedding provider ---
 # "openai_compatible" — API (LM Studio, Ollama, vLLM, llama.cpp)
-# "local" — offline через sentence-transformers (~2GB)
+# "local" — offline via sentence-transformers (~2GB)
 EMBEDDING_PROVIDER = os.environ.get("SKILL_RAG_PROVIDER", "openai_compatible")
 
-# --- OpenAI-совместимый провайдер ---
-API_BASE = os.environ.get("SKILL_RAG_API_BASE", "http://localhost:1234/v1")  # URL embedding API
-API_KEY = os.environ.get("SKILL_RAG_API_KEY", "local-not-needed")  # Ключ API (обычно не нужен)
-API_MODEL = os.environ.get("SKILL_RAG_API_MODEL", "text-embedding-bge-m3")  # Имя модели для эмбеддинга
-API_BATCH_SIZE = 16  # Размер батча для batch-embedding
-API_TIMEOUT_CONNECT = 2.0  # Таймаут подключения (сек)
-API_TIMEOUT_READ = 10.0  # Таймаут чтения (сек)
+# --- OpenAI-compatible provider ---
+API_BASE = os.environ.get("SKILL_RAG_API_BASE", "http://localhost:1234/v1")  # Embedding API URL
+API_KEY = os.environ.get("SKILL_RAG_API_KEY", "local-not-needed")  # API key (usually not needed)
+API_MODEL = os.environ.get("SKILL_RAG_API_MODEL", "text-embedding-bge-m3")  # Embedding model name
+API_BATCH_SIZE = 16  # Batch size for batch-embedding
+API_TIMEOUT_CONNECT = 2.0  # Connection timeout (seconds)
+API_TIMEOUT_READ = 10.0  # Read timeout (seconds)
 
-# --- Локальный провайдер (опционально) ---
-LOCAL_MODEL = "intfloat/multilingual-e5-small"  # Модель для offline-эмбеддинга
-LOCAL_REVISION = None  # Ревизия модели (None = latest)
+# --- Local provider (optional) ---
+LOCAL_MODEL = "intfloat/multilingual-e5-small"  # Model for offline embedding
+LOCAL_REVISION = None  # Model revision (None = latest)
 
-# --- Параметры эмбеддинга ---
-EMBEDDING_DIM = 1024  # Размерность вектора (384 для nomic/e5, 1024 для bge-m3)
-PREFIX_QUERY = "query: "  # Префикс для запросов (e5-модели требуют)
-PREFIX_PASSAGE = "passage: "  # Префикс для passages (e5-модели требуют)
+# --- Embedding parameters ---
+EMBEDDING_DIM = 1024  # Vector dimension (384 for nomic/e5, 1024 for bge-m3)
+PREFIX_QUERY = "query: "  # Prefix for queries (required by e5 models)
+PREFIX_PASSAGE = "passage: "  # Prefix for passages (required by e5 models)
 
-# --- Поля frontmatter для эмбеддинга ---
+# --- Frontmatter fields for embedding ---
 EMBED_FIELDS = (
     "name",
     "description",
@@ -49,16 +49,16 @@ EMBED_FIELDS = (
     "tags",
     "category",
 )
-FIELD_MAX_LEN = 300  # Макс. длина поля в compose-тексте (обрезка)
+FIELD_MAX_LEN = 300  # Max field length in composed text (truncated)
 
 # --- Retrieval ---
-TOP_K = 5  # Количество рекомендаций
-THRESHOLD = 0.3  # Мин. cosine similarity для vector search (0.75 слишком высок для bge-m3)
-HISTORY_WINDOW = 4  # Количество последних сообщений для query
-ASSISTANT_TRUNCATE = 500  # Обрезка ответов ассистента в query
+TOP_K = 5  # Number of recommendations
+THRESHOLD = 0.3  # Min cosine similarity for vector search (0.75 too high for bge-m3)
+HISTORY_WINDOW = 4  # Number of recent messages for query
+ASSISTANT_TRUNCATE = 500  # Assistant response truncation in query
 
-# --- Инструменты скиллов ---
-SKILL_TOOLS = {"skill_view", "skill_manage", "skills_list"}  # Исключаются из tool-сигнала
+# --- Skill tools ---
+SKILL_TOOLS = {"skill_view", "skill_manage", "skills_list"}  # Excluded from tool signal
 
-# --- Логи ---
-LOG_PREFIX = "[skill-rag]"  # Префикс для логов плагина
+# --- Logging ---
+LOG_PREFIX = "[skill-rag]"  # Plugin log prefix

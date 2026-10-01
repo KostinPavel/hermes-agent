@@ -1,7 +1,7 @@
-"""Сканирование скиллов, эмбеддинги, SQLite-индекс.
+"""Skill scanning, embeddings, SQLite index.
 
-Переиспользует parse_frontmatter, EXCLUDED_SKILL_DIRS, SKILL_SUPPORT_DIRS
-из agent/skill_utils.py Hermes Agent.
+Reuses parse_frontmatter, EXCLUDED_SKILL_DIRS, SKILL_SUPPORT_DIRS
+from agent/skill_utils.py Hermes Agent.
 """
 import hashlib
 import logging
@@ -13,10 +13,10 @@ from typing import Optional
 
 import numpy as np
 
-# Максимальный размер SKILL.md файла (1 MB)
+# Max SKILL.md file size (1 MB)
 _MAX_SKILL_FILE_SIZE = 1 * 1024 * 1024
 
-# Переиспользуем из Hermes Agent
+# Reused from Hermes Agent
 from agent.skill_utils import parse_frontmatter as _hermes_parse_frontmatter
 from agent.skill_utils import EXCLUDED_SKILL_DIRS, SKILL_SUPPORT_DIRS
 
@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 def _model_fingerprint() -> str:
-    """Хеш всего, что влияет на вектор."""
+    """Hash of everything that affects the vector."""
     parts = [EMBEDDING_PROVIDER, str(EMBEDDING_DIM), PREFIX_PASSAGE]
     if EMBEDDING_PROVIDER == "local":
         parts += [LOCAL_MODEL, str(LOCAL_REVISION)]
@@ -56,7 +56,7 @@ def _stringify(val) -> str:
 
 
 def _compose_text(meta: dict, fallback_name: str) -> str:
-    """Собрать текст для эмбеддинга из нескольких полей frontmatter."""
+    """Compose embedding text from frontmatter fields."""
     parts = []
     name = (meta.get("name") or fallback_name or "").strip()
     if name:
@@ -79,16 +79,16 @@ def _compose_text(meta: dict, fallback_name: str) -> str:
 
 
 def _is_excluded_dir(path: Path, skills_root: Path) -> bool:
-    """Проверяет, находится ли путь в исключенной директории.
+    """Check if path is in an excluded directory.
 
-    Использует EXCLUDED_SKILL_DIRS из Hermes Agent.
+    Uses EXCLUDED_SKILL_DIRS from Hermes Agent.
     """
     try:
         rel = path.relative_to(skills_root)
     except ValueError:
         return False
-    # Проверяем каждую часть пути на вхождение в EXCLUDED_SKILL_DIRS
-    for part in rel.parts[:-1]:  # все части кроме имени файла
+    # Check each path part against EXCLUDED_SKILL_DIRS
+    for part in rel.parts[:-1]:  # all parts except filename
         if part in EXCLUDED_SKILL_DIRS:
             return True
         if part in SKILL_SUPPORT_DIRS:
@@ -114,11 +114,11 @@ def _get_session():
 
 
 def _is_skill_visible(name: str, frontmatter: dict) -> bool:
-    """Проверяет, видим ли скилл для системного промпта.
+    """Check if skill is visible for system prompt.
 
-    Использует те же проверки, что и build_skills_system_prompt:
-    - disabled из config.yaml
-    - platforms/environments/requires_apps из frontmatter
+    Uses the same checks as build_skills_system_prompt:
+    - disabled from config.yaml
+    - platforms/environments/requires_apps from frontmatter
     - session_platforms/requires_toolsets/fallback_for_toolsets
     """
     from agent.skill_utils import (
@@ -135,7 +135,7 @@ def _is_skill_visible(name: str, frontmatter: dict) -> bool:
     if name in disabled:
         return False
 
-    # 2. Platform / environment / apps (как _parse_skill_file)
+    # 2. Platform / environment / apps (same as _parse_skill_file)
     if not skill_matches_platform({"platforms": frontmatter.get("platforms") or []}):
         return False
     if not skill_matches_environment({"environments": frontmatter.get("environments") or []}):
@@ -143,7 +143,7 @@ def _is_skill_visible(name: str, frontmatter: dict) -> bool:
     if not skill_matches_apps({"requires_apps": frontmatter.get("requires_apps") or []}):
         return False
 
-    # 3. Toolset / tool / session_platform условия (как _skill_should_show)
+    # 3. Toolset / tool / session_platform conditions (same as _skill_should_show)
     conditions = extract_skill_conditions(frontmatter)
     if not _skill_should_show(conditions, None, None):
         return False
@@ -164,7 +164,7 @@ class Indexer:
         self._skill_count = 0
         self._lock = threading.Lock()
 
-    # --- Инициализация ---
+    # --- Initialization ---
 
     def _resolve_db_path(self) -> Path:
         primary = self.skills_root / DB_FILENAME
@@ -196,11 +196,11 @@ class Indexer:
                 self._conn = None
 
     def _init_schema(self):
-        """Инициализация SQLite-схемы: таблица skills + FTS5.
+        """Initialize SQLite schema: skills table + FTS5.
 
-        Создаёт таблицу skills с полями для хранения метаданных и эмбеддингов.
-        Создаёт FTS5 виртуальную таблицу для полнотекстового поиска.
-        FTS5 может быть недоступна — в этом случае _fts_available = False.
+        Creates skills table with fields for storing metadata and embeddings.
+        Creates FTS5 virtual table for full-text search.
+        FTS5 may be unavailable — in this case _fts_available = False.
         """
         c = self.conn
         c.execute("""
@@ -229,7 +229,7 @@ class Indexer:
             self._fts_available = False
         c.commit()
 
-    # --- Модель ---
+    # --- Model ---
 
     def load_model(self):
         if EMBEDDING_PROVIDER != "local":
@@ -248,14 +248,14 @@ class Indexer:
         return None
 
     def embed_batch(self, texts, prefix: str):
-        """Batch-embedding списка текстов.
+        """Batch-embedding of a list of texts.
 
         Args:
-            texts: Список текстов для эмбеддинга.
-            prefix: Префикс для каждого текста (например, "passage: ").
+            texts: List of texts to embed.
+            prefix: Prefix for each text (e.g., "passage: ").
 
         Returns:
-            Список numpy-векторов (нормализованных). Пустой список при ошибке.
+            List of numpy vectors (normalized). Empty list on error.
         """
         if EMBEDDING_PROVIDER == "local":
             try:
@@ -274,14 +274,14 @@ class Indexer:
         return []
 
     def _embed_local(self, text, prefix):
-        """Эмбеддинг одного текста через локальную модель (sentence-transformers).
+        """Embed a single text via local model (sentence-transformers).
 
         Args:
-            text: Текст для эмбеддинга.
-            prefix: Префикс (например, "query: ").
+            text: Text to embed.
+            prefix: Prefix (e.g., "query: ").
 
         Returns:
-            Нормализованный numpy-вектор или None при ошибке.
+            Normalized numpy vector or None on error.
         """
         try:
             model = self.load_model()
@@ -292,15 +292,15 @@ class Indexer:
             return None
 
     def _embed_api(self, texts, prefix, batch):
-        """Эмбеддинг через OpenAI-совместимый API (LM Studio, Ollama, vLLM).
+        """Embed via OpenAI-compatible API (LM Studio, Ollama, vLLM).
 
         Args:
-            texts: Список текстов для эмбеддинга.
-            prefix: Префикс для каждого текста.
-            batch: Если True — вернуть все векторы; если False — только первый.
+            texts: List of texts to embed.
+            prefix: Prefix for each text.
+            batch: If True — return all vectors; if False — only first.
 
         Returns:
-            Список нормализованных numpy-векторов. Пустой список при ошибке.
+            List of normalized numpy vectors. Empty list on error.
         """
         try:
             resp = _get_session().post(
@@ -327,25 +327,25 @@ class Indexer:
             logger.warning(f"{LOG_PREFIX} API embed failed: {e}")
             return []
 
-    # --- Сканирование ---
+    # --- Scanning ---
 
     def scan_skills(self):
-        """Сканирование скиллов с учётом Hermes-фильтрации.
+        """Scan skills with Hermes filtering.
 
-        Использует _is_skill_visible() для исключения:
-        - disabled скиллов (config.yaml skills.disabled)
-        - скиллов с несовместимым platform/environment/apps
-        - скиллов с неудовлетворёнными requires_toolsets/requires_tools
+        Uses _is_skill_visible() to exclude:
+        - disabled skills (config.yaml skills.disabled)
+        - skills with incompatible platform/environment/apps
+        - skills with unmet requires_toolsets/requires_tools
         """
         if not self.skills_root.exists():
             return []
         found = []
         for path in self.skills_root.rglob(SKILL_FILE):
-            # Пропускаем исключенные директории
+            # Skip excluded directories
             if _is_excluded_dir(path, self.skills_root):
                 continue
             try:
-                # M3: Проверка размера файла перед чтением
+                # M3: File size check before reading
                 if path.stat().st_size > _MAX_SKILL_FILE_SIZE:
                     logger.warning("%s skipping %s: file too large (%d bytes)",
                                    LOG_PREFIX, path, path.stat().st_size)
@@ -360,7 +360,7 @@ class Indexer:
             description = (meta.get("description") or "").strip()
             if not name or not description:
                 continue
-            # Фильтрация: disabled / platform / tools
+            # Filtering: disabled / platform / tools
             if not _is_skill_visible(name, meta):
                 logger.debug("%s skipping %s: not visible in system prompt", LOG_PREFIX, name)
                 continue
@@ -399,7 +399,7 @@ class Indexer:
                     return path
         return None
 
-    # --- Синхронизация ---
+    # --- Synchronization ---
 
     def sync_startup(self):
         found = self.scan_skills()
@@ -441,10 +441,10 @@ class Indexer:
         )
 
     def upsert_with_vec(self, skill, vec):
-        """Если vec is None — не обновляем хеши.
+        """If vec is None — do not update hashes.
 
-        Это сохраняет скилл «несвежим» до следующей успешной попытки,
-        чтобы BM25 fallback включился на последующих ходах.
+        This keeps the skill "stale" until the next successful attempt,
+        so BM25 fallback activates on subsequent turns.
         """
         c = self.conn
         if vec is None:
@@ -500,7 +500,7 @@ class Indexer:
             )
 
     def reindex(self, names):
-        """Точечная переиндексация по именам."""
+        """Targeted re-indexing by names."""
         if not names:
             return
         names_set = set(names)
@@ -524,7 +524,7 @@ class Indexer:
         self.conn.commit()
 
     def check_fresh(self, names):
-        """Проверить свежесть только указанных имён."""
+        """Check freshness of only the specified names."""
         if not names:
             return []
         stale = []
@@ -534,7 +534,7 @@ class Indexer:
                 stale.append(name)
                 continue
             try:
-                # M3: Проверка размера файла
+                # M3: File size check
                 if path.stat().st_size > _MAX_SKILL_FILE_SIZE:
                     stale.append(name)
                     continue
