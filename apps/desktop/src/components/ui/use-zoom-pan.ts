@@ -20,6 +20,10 @@ const MIN_SCALE = 0.05
 const MAX_SCALE = 8
 const WHEEL_STEP = 1.1
 const BUTTON_STEP = 1.25
+// Breathing room around fitted content. Vertical clears the floating toolbar
+// at the stage's bottom edge; symmetric so the grid centering stays exact.
+const FIT_INSET_X = 32
+const FIT_INSET_Y = 64
 
 const clamp = (scale: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale))
 
@@ -46,17 +50,18 @@ export function useZoomPan() {
     })
   }, [])
 
-  // Shrink the content so it fits the stage, never upscale it. The stage grid
-  // centers the content, so the fit transform needs no translation. Content
-  // with no measurable size yet (async render, e.g. mermaid) stays as-is — a
-  // zero scale would blank the overlay instead of waiting for geometry.
+  // Shrink the content so it fits the stage, inset from its edges, and never
+  // upscale it. The stage grid centers the content, so the fit transform needs
+  // no translation. Content with no measurable size yet (async render, e.g.
+  // mermaid) stays as-is — a zero scale would blank the overlay instead of
+  // waiting for geometry.
   const fit = useCallback(() => {
     if (!stageEl || !contentEl) {
       return
     }
 
-    const availableW = stageEl.clientWidth
-    const availableH = stageEl.clientHeight
+    const availableW = stageEl.clientWidth - FIT_INSET_X * 2
+    const availableH = stageEl.clientHeight - FIT_INSET_Y * 2
     const contentW = contentEl.scrollWidth
     const contentH = contentEl.scrollHeight
 
