@@ -1817,20 +1817,10 @@ body.guest-pointer-lock :is(webview, iframe) {
   line-height: var(--human-msg-line-height);
 }
 
-/* Sticky human bubbles clamp to ~2 lines with a soft bottom fade so a long
-   prompt doesn't dominate the viewport. The clamp lifts only in the edit
-   composer; expanding on read-only :focus-within ran on mousedown (before the
-   swap) and fought stick-to-bottom when parked at the bottom. */
-.sticky-human-clamp {
-  cursor: pointer;
-  max-height: calc(4 * var(--human-msg-line-height) * var(--conversation-text-font-size) + 0.15rem);
-  overflow: hidden;
-}
-
-.sticky-human-clamp[data-clamped='true'] {
-  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
-  mask-image: linear-gradient(to bottom, #000 55%, transparent);
-}
+/* #42992: submitted prompts render at natural height — no clamp, no fade.
+   #39721 stays protected in the component instead: a prompt taller than the
+   sticky budget (user-message.tsx) drops its sticky pin and scrolls away as
+   ordinary flow content, so it can't eat the viewport its response needs. */
 
 /* Stick-to-bottom owns scrollTop while following. Once escaped, native anchoring
    is safe and keeps sticky human edits from shoving the viewport; data-editing

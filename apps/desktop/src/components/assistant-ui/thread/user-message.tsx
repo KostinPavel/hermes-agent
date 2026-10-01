@@ -37,11 +37,16 @@ export function hasTextSelection(): boolean {
 export function StickyHumanMessageContainer({
   attachments,
   children,
-  messageId
+  messageId,
+  pin = true
 }: {
   attachments?: ReactNode
   children: ReactNode
   messageId?: string
+  /** #42992/#39721: prompts taller than the sticky budget render as ordinary
+   *  flow content (no pin) so a long prompt scrolls away instead of eating
+   *  the viewport its response needs. */
+  pin?: boolean
 }) {
   return (
     // Fragment, not a wrapper: a wrapping element becomes the sticky's
@@ -50,7 +55,10 @@ export function StickyHumanMessageContainer({
     // while attachments below it scroll away.
     <>
       <div
-        className="group/user-message sticky z-40 -mx-4 flex w-[calc(100%+2rem)] min-w-0 max-w-none flex-col items-stretch gap-0 self-end overflow-visible px-4 pb-(--conversation-turn-gap) pt-1"
+        className={cn(
+          'group/user-message -mx-4 flex w-[calc(100%+2rem)] min-w-0 max-w-none flex-col items-stretch gap-0 self-end overflow-visible px-4 pb-(--conversation-turn-gap) pt-1',
+          pin ? 'sticky z-40' : 'relative'
+        )}
         data-message-id={messageId}
         data-role="user"
         data-slot="aui_user-message-root"
@@ -283,28 +291,31 @@ export const UserMessage: FC<{
     [react]
   )
 
-  // Sticky human bubbles clamp to ~2 lines with a soft fade so a long prompt
-  // doesn't dominate the viewport while the response streams underneath; the
-  // clamp lifts on hover / focus (see styles.css). We measure the *unclamped*
-  // inner wrapper so the ResizeObserver only fires on real content / width
-  // changes, not on every frame while the outer max-height animates open.
+  // #42992: submitted prompts render in full — no clamp, no fade, no hidden
+  // lines. The sticky pin is the only thing that stays bounded: a prompt
+  // taller than STICKY_PIN_MAX_LINES would, pinned at the viewport top, eat
+  // the space its response needs (#39721), so it renders as ordinary flow
+  // content instead and scrolls away like any other turn. Short prompts keep
+  // pinning exactly as before. We measure the body's natural height (the
+  // ResizeObserver only fires on real content / width changes, not on every
+  // frame).
   const clampInnerRef = useRef<HTMLDivElement | null>(null)
-  const [bodyClamped, setBodyClamped] = useState(false)
+  const [bodyTall, setBodyTall] = useState(false)
   const lastClampHeightRef = useRef(-1)
   const lineHeightRef = useRef(0)
 
+  // The sticky pin's height budget: the same ~4 lines the old clamp allowed.
+  const STICKY_PIN_MAX_LINES = 4
+
   // Watch windows spectate a subagent run driven elsewhere — prompts can't be
-  // edited, restored, or stopped from here. The bubble stays a button that
-  // toggles the 2-line clamp so long prompts are still fully readable.
+  // edited, restored, or stopped from here. The bubble renders as plain flow
+  // content (full text, nothing to toggle).
   const readOnly = isWatchWindow()
-  const [expanded, setExpanded] = useState(false)
-  const clampActive = !(readOnly && expanded)
 
   const measureClamp = useCallback((entries: readonly ResizeObserverEntry[]) => {
     const inner = clampInnerRef.current
-    const outer = inner?.parentElement
 
-    if (!inner || !outer) {
+    if (!inner) {
       return
     }
 
@@ -328,8 +339,7 @@ export const UserMessage: FC<{
       lineHeightRef.current = parseFloat(styles.lineHeight) || 1.5 * parseFloat(styles.fontSize) || 20
     }
 
-    outer.style.setProperty('--human-msg-full', `${fullHeight}px`)
-    setBodyClamped(fullHeight > lineHeightRef.current * 2 + 1)
+    setBodyTall(fullHeight > lineHeightRef.current * STICKY_PIN_MAX_LINES + 1)
   }, [])
 
   useResizeObserver(measureClamp, clampInnerRef)
@@ -380,16 +390,9 @@ export const UserMessage: FC<{
     // Render the user's text through a minimal markdown pipeline:
     // backtick `code` and ``` fenced ``` blocks, with directive chips
     // (`@file:` etc.) still resolved inside the plain-text spans.
-    <div
-      className={cn(clampActive && 'sticky-human-clamp')}
-      data-clamped={clampActive && bodyClamped ? 'true' : undefined}
-    >
-      {/* Match the edit composer's collapsed line box (min-h-[1.25rem]) so
-          clicking to edit can't grow the bubble by a sub-pixel and reflow the
-          turn 1px. */}
-      <div className="min-h-[1.25rem]" ref={clampInnerRef}>
-        <UserMessageText className="wrap-anywhere" text={messageText} />
-      </div>
+    // #42992: the body renders at its natural height — no clamp.
+    <div className="min-h-[1.25rem]" ref={clampInnerRef}>
+      <UserMessageText className="wrap-anywhere" text={messageText} />
     </div>
   ) : (
     // A file-only turn (a bare large paste, a dropped file) has no prose, so
@@ -418,6 +421,7 @@ export const UserMessage: FC<{
           ) : null
         }
         messageId={messageId}
+        pin={!bodyTall}
       >
         <ActionBarPrimitive.Root className="relative w-full max-w-full" data-slot="aui_user-bubble-actions">
           <div className="human-message-with-todos-wrapper flex w-full flex-col gap-0">
@@ -451,25 +455,9 @@ export const UserMessage: FC<{
                 }
               >
                 {readOnly ? (
-                  // Spectator transcript: clicking only toggles the clamp so the
-                  // full prompt is readable — never opens an edit composer.
-                  <button
-                    aria-expanded={bodyClamped ? expanded : undefined}
-                    className={cn(bubbleClassName, !bodyClamped && 'cursor-default')}
-                    onClick={() => {
-                      // Drag-select ends on mouseup→click; don't collapse the
-                      // clamp just because the highlight finished.
-                      if (hasTextSelection() || !bodyClamped) {
-                        return
-                      }
-
-                      triggerHaptic('selection')
-                      setExpanded(value => !value)
-                    }}
-                    type="button"
-                  >
-                    {bubbleContent}
-                  </button>
+                  // Spectator transcript: the full prompt renders in place
+                  // (#42992) — nothing to expand, and no edit composer.
+                  <div className={cn(bubbleClassName, 'cursor-default')}>{bubbleContent}</div>
                 ) : (
                   // Always editable — clicking opens the edit composer even while a
                   // turn streams; sending the edit reverts (interrupt + rewind).
