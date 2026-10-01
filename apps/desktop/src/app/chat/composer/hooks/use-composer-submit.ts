@@ -1,8 +1,8 @@
 import { SLASH_COMMAND_RE } from '@hermes/shared'
 import { type RefObject, useLayoutEffect, useRef } from 'react'
 
-import { translateNow, useI18n } from '@/i18n'
 import { usePaneVisible } from '@/components/pane-shell/pane-visibility'
+import { translateNow, useI18n } from '@/i18n'
 import { isSlashCommandText } from '@/lib/chat-runtime'
 import { isSideTaskSlashCommand } from '@/lib/desktop-slash-commands'
 import { triggerHaptic } from '@/lib/haptics'
