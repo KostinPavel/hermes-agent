@@ -5,8 +5,10 @@ import { useI18n } from '@/i18n'
 import {
   $restoredDraftNotice,
   $salvagedEditNoticesBySession,
+  type ComposerAttachment,
   dismissRestoredDraftNotice,
   dismissSalvagedEdit,
+  takeSalvagedEditAttachments,
   undoRestoredDraft,
   undoSalvagedEdit
 } from '@/store/composer'
@@ -19,9 +21,13 @@ interface RestoredDraftNoticeProps {
   /** Clear the editor after Undo emptied the fresh draft. */
   onUndone: () => void
   /** Repaint the editor after Undo put text back into it. */
-  onRestored: (text: string) => void
+  onRestored: (text: string, attachments?: ComposerAttachment[]) => void
   /** Latest live editor text — Undo only applies while it is still what was restored. */
   readLiveText: () => string
+  /** The composer surface id, when this composer has one (#88621 review R7):
+   * a record published by another pane of the same session is that pane's to
+   * consume, never this one's. */
+  surfaceId?: string | null
 }
 
 /**
@@ -33,7 +39,14 @@ interface RestoredDraftNoticeProps {
  * hides it without consuming the Undo; the salvage notice renders only on the
  * composer whose session it names.
  */
-export function RestoredDraftNotice({ freshDraft, sessionKey, onUndone, onRestored, readLiveText }: RestoredDraftNoticeProps) {
+export function RestoredDraftNotice({
+  freshDraft,
+  onUndone,
+  onRestored,
+  readLiveText,
+  sessionKey,
+  surfaceId
+}: RestoredDraftNoticeProps) {
   const notice = useStore($restoredDraftNotice)
   const salvagedBySession = useStore($salvagedEditNoticesBySession)
   const { t } = useI18n()
@@ -46,9 +59,14 @@ export function RestoredDraftNotice({ freshDraft, sessionKey, onUndone, onRestor
     // reads as a no-op — the notice is informational there (#88621).
     const undoApplies = salvaged.currentText !== salvaged.undoText
 
+    // A record that names another pane of this same session belongs to that
+    // pane (#88621 review R7): this one must not consume it — and its
+    // dismiss control stays, so this pane can still clear the strip.
+    const ownsRecord = !salvaged.surfaceKey || !surfaceId || salvaged.surfaceKey === surfaceId
+
     return (
       <div
-        className="flex items-center justify-between gap-2 rounded-lg border border-[color-mix(in_srgb,var(--dt-composer-ring)_32%,transparent)] bg-accent/18 px-2 py-1"
+        className="flex items-center justify-between gap-2 rounded-lg border border-[color:mix(in_srgb,var(--dt-composer-ring)_32%,transparent)] bg-accent/18 px-2 py-1"
         data-slot="composer-salvaged-edit"
         role="status"
       >
@@ -58,10 +76,19 @@ export function RestoredDraftNotice({ freshDraft, sessionKey, onUndone, onRestor
             <Button
               className="h-6 rounded-md px-2 text-[0.68rem]"
               onClick={() => {
-                const text = sessionKey ? undoSalvagedEdit(sessionKey, readLiveText()) : null
+                if (!sessionKey) {
+                  return
+                }
+
+                // Consume only what this surface owns; the payload Undo paints
+                // is the salvaged text AND its attachment membership (#88621
+                // review N1) — never the typed words on top of whatever chips
+                // happen to be live now.
+                const attachments = takeSalvagedEditAttachments(sessionKey)
+                const text = undoSalvagedEdit(sessionKey, readLiveText(), surfaceId ?? undefined)
 
                 if (text !== null) {
-                  onRestored(text)
+                  onRestored(text, attachments)
                 }
               }}
               type="button"
@@ -74,7 +101,7 @@ export function RestoredDraftNotice({ freshDraft, sessionKey, onUndone, onRestor
             aria-label={t.common.close}
             className="h-6 rounded-md px-2 text-[0.68rem]"
             onClick={() => {
-              if (sessionKey) {
+              if (sessionKey && ownsRecord) {
                 dismissSalvagedEdit(sessionKey)
               }
             }}

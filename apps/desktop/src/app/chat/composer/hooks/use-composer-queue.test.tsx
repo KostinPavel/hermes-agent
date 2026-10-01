@@ -2,6 +2,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  type ComposerAttachment,
   $salvagedEditNoticesBySession,
   announceSalvagedEdit,
   dismissSalvagedEdit,
@@ -684,3 +685,161 @@ describe('useComposerQueue park integration', () => {
   })
 })
 
+
+// ---------------------------------------------------------------------------
+// #88621 review regressions — live-input reads at every queued-edit boundary
+// (R3) and the payload-aware dirty decision (R2).
+// ---------------------------------------------------------------------------
+
+describe('useComposerQueue live-input reads (#88621 review R3/R2)', () => {
+  const S = 'live-read-session'
+
+  beforeEach(() => {
+    window.localStorage.clear()
+    $queuedPromptsBySession.set({})
+    $parkedQueueSessions.set({})
+    $salvagedEditNoticesBySession.set({})
+    setSessionsLoading(false)
+  })
+
+  afterEach(() => {
+    cleanup()
+    $queuedPromptsBySession.set({})
+    $parkedQueueSessions.set({})
+    $salvagedEditNoticesBySession.set({})
+    setSessionsLoading(true)
+  })
+
+  function renderLiveHook(overrides: {
+    attachments?: ComposerAttachment[]
+    liveText: { current: string }
+    loadIntoComposer?: (text: string, attachments: ComposerAttachment[]) => void
+  }) {
+    const queueEditRef: { current: QueueEditState | null } = { current: null }
+    const draftRef = { current: '' }
+    const loadIntoComposer =
+      overrides.loadIntoComposer ??
+      ((text: string) => {
+        overrides.liveText.current = text
+        draftRef.current = text
+      })
+
+    const hook = renderHook(() =>
+      useComposerQueue({
+        activeQueueSessionKey: S,
+        attachments: overrides.attachments ?? [],
+        busy: false,
+        clearDraft: () => undefined,
+        draftRef,
+        focusInput: () => undefined,
+        loadIntoComposer,
+        onCancel: vi.fn(),
+        onSteer: undefined,
+        onSubmit: vi.fn(async () => true),
+        queueEditRef,
+        queueSessionKey: S,
+        readLiveText: () => overrides.liveText.current,
+        sessionId: 'rt-live-read'
+      })
+    )
+
+    return { hook, loadIntoComposer, queueEditRef }
+  }
+
+  it('R3: beginQueuedEdit snapshots the LIVE text as the pre-edit draft (the real assertion)', () => {
+    const entry = enqueueQueuedPrompt(S, { attachments: [], text: 'queued words' })!
+    const liveText = { current: 'final burst before the edit click' }
+
+    const { hook, queueEditRef } = renderLiveHook({ liveText })
+
+    act(() => {
+      hook.result.current.beginQueuedEdit(entry)
+    })
+
+    // The dirty buffer repainted the entry text; the pre-edit snapshot must
+    // hold the live final burst, not the stale '' the mirror still had.
+    expect(queueEditRef.current?.draft).toBe('final burst before the edit click')
+  })
+
+  it('R3: Save commits the LIVE text, keeping a pending-frame burst', () => {
+    const entry = enqueueQueuedPrompt(S, { attachments: [], text: 'original words' })!
+    const liveText = { current: '' }
+
+    const { hook } = renderLiveHook({ liveText })
+
+    act(() => {
+      hook.result.current.beginQueuedEdit(entry)
+    })
+    // loadIntoComposer seeded the live text with the entry text; the user
+    // typed a replacement that the flush frame has not carried to draftRef.
+    liveText.current = 'replacement queued words with final input'
+
+    act(() => {
+      hook.result.current.exitQueuedEdit('save')
+    })
+
+    expect(getQueuedPrompts(S).map(e => e.text)).toEqual(['replacement queued words with final input'])
+  })
+
+  it('R3: stepping with ArrowDown commits the LIVE text to the entry it leaves', () => {
+    const older = enqueueQueuedPrompt(S, { attachments: [], text: 'older' })!
+    const newer = enqueueQueuedPrompt(S, { attachments: [], text: 'newer' })!
+    const liveText = { current: '' }
+
+    const { hook } = renderLiveHook({ liveText })
+
+    act(() => {
+      hook.result.current.beginQueuedEdit(older)
+    })
+    liveText.current = 'typed over older, frame pending'
+
+    act(() => {
+      hook.result.current.stepQueuedEdit(1)
+    })
+
+    expect(getQueuedPrompts(S).map(e => e.text)).toEqual([
+      'typed over older, frame pending',
+      'newer'
+    ])
+  })
+
+  it('R2: a chip added with unchanged text is dirty — Cancel publishes the salvage notice', () => {
+    const entry = enqueueQueuedPrompt(S, { attachments: [], text: 'original words' })!
+    const addedChip: ComposerAttachment = { id: 'file:new', kind: 'file', label: 'new.txt' }
+    const liveText = { current: '' }
+
+    const { hook } = renderLiveHook({ attachments: [addedChip], liveText })
+
+    act(() => {
+      hook.result.current.beginQueuedEdit(entry)
+    })
+    // loadIntoComposer seeded liveText with the entry text; text unchanged,
+    // but the live attachment set gained a chip.
+
+    act(() => {
+      hook.result.current.exitQueuedEdit('cancel')
+    })
+
+    const notice = getSalvagedEditNotice(S)
+
+    expect(notice?.undoText).toBe('original words')
+    expect(notice?.undoAttachments).toEqual([addedChip])
+  })
+
+  it('R2: an untouched edit (text AND chips) stays clean — no spurious notice', () => {
+    const chip: ComposerAttachment = { id: 'file:queued', kind: 'file', label: 'queued.txt' }
+    const entry = enqueueQueuedPrompt(S, { attachments: [chip], text: 'original words' })!
+    const liveText = { current: '' }
+
+    const { hook } = renderLiveHook({ attachments: [chip], liveText })
+
+    act(() => {
+      hook.result.current.beginQueuedEdit(entry)
+    })
+    act(() => {
+      hook.result.current.exitQueuedEdit('cancel')
+    })
+
+    expect(getSalvagedEditNotice(S)).toBeNull()
+  })
+})
