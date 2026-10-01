@@ -495,6 +495,7 @@ describe('composer queue terminal payload persistence', () => {
       displayText: TERMINAL_CHIP_DRAFT,
       frozenTransport: SELECTION_A_TRANSPORT
     })
+
     const second = enqueueQueuedPrompt(SESSION_KEY, {
       attachments: [],
       text: 'second @terminal:`bash:1-2`',
@@ -532,6 +533,7 @@ describe('composer queue terminal payload persistence', () => {
       displayText: TERMINAL_CHIP_DRAFT,
       frozenTransport: SELECTION_A_TRANSPORT
     })
+
     enqueueQueuedPrompt('rt-old', { attachments: [], text: 'later' })
 
     expect(migrateQueuedPrompts('rt-old', 'rt-new')).toBe(true)
