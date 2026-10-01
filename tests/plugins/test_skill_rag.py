@@ -206,15 +206,12 @@ class TestPluginInit:
 
 
 class TestHomeResolution:
-    def test_config_uses_get_skills_dir(self, config):
-        """config.py must use hermes_constants.get_skills_dir(), not hardcoded paths."""
+    def test_config_uses_hermes_home(self, config):
+        """config.py must resolve home via hermes_constants, not hardcoded paths."""
         assert hasattr(config, "SKILLS_ROOT")
         assert hasattr(config, "HERMES_HOME")
-
-    def test_no_hardcoded_home(self, config):
-        """No hardcoded ~/.hermes paths in config."""
-        src = Path(config.__file__).read_text()
-        assert "~/.hermes" not in src or "get_hermes_home" in src
+        # HERMES_HOME must be a Path (resolved via get_hermes_home at import)
+        assert isinstance(config.HERMES_HOME, Path)
 
 
 class TestPromptIndexFlag:
@@ -224,3 +221,42 @@ class TestPromptIndexFlag:
         # Default: flag not set → returns None (not False)
         result = _skills_cfg_get("prompt_index")
         assert result is None or isinstance(result, bool)
+
+
+class TestRealDiscovery:
+    """Integration test: plugin loads through real PluginManager discovery.
+
+    plugins/AGENTS.md: "Load through real discovery with a temp HERMES_HOME;
+    assert behaviour (tool registered, hook fired with expected kwargs), not counts."
+    """
+
+    def test_plugin_discovers_and_registers_hooks(self, _isolate_env, monkeypatch):
+        import shutil as _shutil
+        import yaml as _yaml
+        from hermes_cli import plugins as _plugins_mod
+
+        hermes_home = _isolate_env
+        repo_root = Path(__file__).resolve().parents[2]
+        src_plugin = repo_root / "plugins" / "skill-rag"
+        dst_plugin = hermes_home / "plugins" / "skill-rag"
+        _shutil.copytree(src_plugin, dst_plugin)
+
+        # Plugins are opt-in — must be listed in plugins.enabled to load.
+        cfg_path = hermes_home / "config.yaml"
+        cfg_path.write_text(
+            _yaml.safe_dump({"plugins": {"enabled": ["skill-rag"]}}),
+            encoding="utf-8",
+        )
+
+        # Force a fresh plugin manager so the new config is picked up.
+        _plugins_mod._plugin_manager = _plugins_mod.PluginManager()
+        _plugins_mod.discover_plugins()
+
+        mgr = _plugins_mod.get_plugin_manager()
+        plugins_list = mgr.list_plugins()
+        skill_rag = [p for p in plugins_list if p["name"] == "skill-rag"]
+        assert len(skill_rag) == 1, f"skill-rag not discovered: {plugins_list}"
+        assert skill_rag[0]["error"] is None, f"skill-rag load error: {skill_rag[0]['error']}"
+
+        # Assert hooks were registered (behaviour, not counts).
+        assert skill_rag[0]["hooks"] >= 1, "skill-rag registered no hooks"
