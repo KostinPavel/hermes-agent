@@ -2,9 +2,9 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  type ComposerAttachment,
   $salvagedEditNoticesBySession,
   announceSalvagedEdit,
+  type ComposerAttachment,
   dismissSalvagedEdit,
   getSalvagedEditNotice,
   undoSalvagedEdit
@@ -717,6 +717,7 @@ describe('useComposerQueue live-input reads (#88621 review R3/R2)', () => {
   }) {
     const queueEditRef: { current: QueueEditState | null } = { current: null }
     const draftRef = { current: '' }
+
     const loadIntoComposer =
       overrides.loadIntoComposer ??
       ((text: string) => {
