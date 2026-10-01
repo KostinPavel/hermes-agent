@@ -10,7 +10,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional, Set
 
-from .config import LOG_PREFIX, TOP_K, THRESHOLD
+from .config import LOG_PREFIX, DEFAULTS
 from .indexer import Indexer
 from . import retrieval
 
@@ -21,28 +21,22 @@ logger = logging.getLogger(__name__)
 _indexer: Optional[Indexer] = None
 _initialized: bool = False
 _init_lock: threading.Lock = threading.Lock()
-_config: Optional[Dict[str, Any]] = None
+_ctx: Optional[Any] = None
 
 
-def _get_config() -> Dict[str, Any]:
-    """Load plugin config from Hermes PluginContext or defaults."""
-    global _config
-    if _config is not None:
-        logger.debug("%s _get_config: cached config=%s", LOG_PREFIX, _config)
-        return _config
-    try:
-        from hermes_cli.config import load_config_readonly
-        raw = (load_config_readonly() or {}).get("plugins", {}).get("skill-rag", {})
-        if isinstance(raw, dict):
-            _config = raw
-            logger.debug("%s _get_config: loaded from config.yaml=%s", LOG_PREFIX, raw)
-        else:
-            _config = {}
-            logger.debug("%s _get_config: config.yaml value not dict, using {}", LOG_PREFIX)
-    except Exception as e:
-        logger.debug("%s _get_config: load_config_readonly failed (%s), using defaults", LOG_PREFIX, e)
-        _config = {}
-    return _config
+def _resolve_config() -> Dict[str, Any]:
+    """Resolve plugin config from ctx.get_config() with defaults fallback."""
+    cfg = dict(DEFAULTS)
+    if _ctx is not None:
+        try:
+            for key in DEFAULTS:
+                val = _ctx.get_config(key)
+                if val is not None:
+                    cfg[key] = val
+            logger.debug("%s _resolve_config: resolved from ctx=%s", LOG_PREFIX, cfg)
+        except Exception as e:
+            logger.debug("%s _resolve_config: ctx.get_config failed (%s), using defaults", LOG_PREFIX, e)
+    return cfg
 
 
 def _ensure_init() -> None:
@@ -57,10 +51,10 @@ def _ensure_init() -> None:
             return
         logger.info("%s _ensure_init: starting initialization", LOG_PREFIX)
         start = time.monotonic()
-        _get_config()
+        config = _resolve_config()
         try:
-            _indexer = Indexer()
-            logger.debug("%s _ensure_init: Indexer() created", LOG_PREFIX)
+            _indexer = Indexer(config=config)
+            logger.debug("%s _ensure_init: Indexer() created with config=%s", LOG_PREFIX, config)
         except Exception as e:
             logger.error("%s _ensure_init: Indexer() failed: %s", LOG_PREFIX, e, exc_info=True)
             return
@@ -106,6 +100,7 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[Dict[str, str]]:
             logger.warning("%s on_pre_llm_call: _indexer is None after init, returning None", LOG_PREFIX)
             return None
 
+        config = _indexer.config
         user_message: str = kwargs.get("user_message") or ""
         history: List[Any] = kwargs.get("conversation_history") or []
         session_id: str = kwargs.get("session_id") or ""
@@ -134,14 +129,16 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[Dict[str, str]]:
                         LOG_PREFIX, len(already), sorted(already))
 
         # Vector search
+        top_k = config.get("top_k", DEFAULTS["top_k"])
+        threshold = config.get("threshold", DEFAULTS["threshold"])
         logger.info("%s on_pre_llm_call: starting vector search (top_k=%d, threshold=%.3f, exclude=%d)",
-                    LOG_PREFIX, TOP_K, THRESHOLD, len(already))
+                    LOG_PREFIX, top_k, threshold, len(already))
         search_start = time.monotonic()
         try:
             results = retrieval.retrieve(
                 _indexer, query,
                 exclude_names=already,
-                config=retrieval.RetrievalConfig(top_k=TOP_K, threshold=THRESHOLD),
+                config=retrieval.RetrievalConfig(top_k=top_k, threshold=threshold),
             )
         except Exception as e:
             logger.error("%s on_pre_llm_call: vector search FAILED: %s", LOG_PREFIX, e, exc_info=True)
@@ -169,7 +166,7 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[Dict[str, str]]:
             results = retrieval.retrieve(
                 _indexer, query,
                 exclude_names=already,
-                config=retrieval.RetrievalConfig(top_k=TOP_K, threshold=THRESHOLD),
+                config=retrieval.RetrievalConfig(top_k=top_k, threshold=threshold),
             )
             logger.info("%s on_pre_llm_call: re-search after reindex returned %d results: %s",
                         LOG_PREFIX, len(results),
@@ -186,7 +183,7 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[Dict[str, str]]:
                 results = retrieval.retrieve_bm25(
                     _indexer, query,
                     exclude_names=already,
-                    config=retrieval.RetrievalConfig(top_k=TOP_K),
+                    config=retrieval.RetrievalConfig(top_k=top_k),
                 )
                 logger.info("%s on_pre_llm_call: BM25 fallback returned %d results: %s",
                             LOG_PREFIX, len(results),
@@ -242,6 +239,8 @@ def on_skill_lifecycle(**kwargs: Any) -> None:
 
 def register(ctx: Any) -> None:
     """Plugin registration in Hermes PluginContext."""
+    global _ctx
+    _ctx = ctx
     logger.info("%s register: ENTERED, ctx=%s type=%s", LOG_PREFIX, ctx, type(ctx).__name__)
     try:
         ctx.register_hook("pre_llm_call", on_pre_llm_call)

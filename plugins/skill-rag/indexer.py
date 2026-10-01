@@ -5,11 +5,12 @@ from agent/skill_utils.py Hermes Agent.
 """
 import hashlib
 import logging
+import os
 import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -22,22 +23,27 @@ from agent.skill_utils import EXCLUDED_SKILL_DIRS, SKILL_SUPPORT_DIRS
 
 from .config import (
     SKILLS_ROOT, FALLBACK_INDEX_DIR, DB_FILENAME, FTS_TABLE, SKILL_FILE,
-    EMBEDDING_PROVIDER, LOCAL_MODEL, LOCAL_REVISION,
-    API_BASE, API_KEY, API_MODEL, API_BATCH_SIZE,
-    API_TIMEOUT_CONNECT, API_TIMEOUT_READ,
+    LOCAL_MODEL, LOCAL_REVISION,
+    API_BATCH_SIZE, API_TIMEOUT_CONNECT, API_TIMEOUT_READ,
     EMBEDDING_DIM, PREFIX_PASSAGE, FIELD_MAX_LEN, LOG_PREFIX,
+    DEFAULTS,
 )
 
 logger = logging.getLogger(__name__)
 
+# API key is a secret — read from environment variable
+_API_KEY = os.environ.get("SKILL_RAG_API_KEY", "local-not-needed")
 
-def _model_fingerprint() -> str:
+
+def _model_fingerprint(config: Dict[str, Any]) -> str:
     """Hash of everything that affects the vector."""
-    parts = [EMBEDDING_PROVIDER, str(EMBEDDING_DIM), PREFIX_PASSAGE]
-    if EMBEDDING_PROVIDER == "local":
+    provider = config.get("provider", DEFAULTS["provider"])
+    parts = [provider, str(EMBEDDING_DIM), PREFIX_PASSAGE]
+    if provider == "local":
         parts += [LOCAL_MODEL, str(LOCAL_REVISION)]
     else:
-        parts += [API_BASE, API_MODEL]
+        parts += [config.get("api_base", DEFAULTS["api_base"]),
+                  config.get("api_model", DEFAULTS["api_model"])]
     return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
@@ -153,10 +159,14 @@ def _is_skill_visible(name: str, frontmatter: dict) -> bool:
 
 class Indexer:
 
-    def __init__(self, skills_root: Optional[Path] = None):
+    def __init__(self, skills_root: Optional[Path] = None,
+                 config: Optional[Dict[str, Any]] = None):
         self.skills_root = Path(skills_root) if skills_root else SKILLS_ROOT
+        self.config = dict(DEFAULTS)
+        if config:
+            self.config.update(config)
         self.db_path = self._resolve_db_path()
-        self.model_hash = _model_fingerprint()
+        self.model_hash = _model_fingerprint(self.config)
         self._model = None
         self._conn: Optional[sqlite3.Connection] = None
         self._fts_available = False
@@ -232,7 +242,7 @@ class Indexer:
     # --- Model ---
 
     def load_model(self):
-        if EMBEDDING_PROVIDER != "local":
+        if self.config.get("provider") != "local":
             return None
         if self._model is None:
             from sentence_transformers import SentenceTransformer
@@ -240,9 +250,10 @@ class Indexer:
         return self._model
 
     def embed(self, text: str, prefix: str) -> Optional[np.ndarray]:
-        if EMBEDDING_PROVIDER == "local":
+        provider = self.config.get("provider")
+        if provider == "local":
             return self._embed_local(text, prefix)
-        if EMBEDDING_PROVIDER == "openai_compatible":
+        if provider == "openai_compatible":
             vecs = self._embed_api([text], prefix, batch=False)
             return vecs[0] if vecs else None
         return None
@@ -257,7 +268,8 @@ class Indexer:
         Returns:
             List of numpy vectors (normalized). Empty list on error.
         """
-        if EMBEDDING_PROVIDER == "local":
+        provider = self.config.get("provider")
+        if provider == "local":
             try:
                 model = self.load_model()
                 arr = model.encode(
@@ -269,7 +281,7 @@ class Indexer:
             except Exception as e:
                 logger.warning(f"{LOG_PREFIX} local batch embed failed: {e}")
                 return []
-        if EMBEDDING_PROVIDER == "openai_compatible":
+        if provider == "openai_compatible":
             return self._embed_api(texts, prefix, batch=True)
         return []
 
@@ -304,13 +316,13 @@ class Indexer:
         """
         try:
             resp = _get_session().post(
-                f"{API_BASE}/embeddings",
+                f"{self.config.get('api_base')}/embeddings",
                 headers={
-                    "Authorization": f"Bearer {API_KEY}",
+                    "Authorization": f"Bearer {_API_KEY}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": API_MODEL,
+                    "model": self.config.get("api_model"),
                     "input": [prefix + t for t in texts],
                 },
                 timeout=(API_TIMEOUT_CONNECT, API_TIMEOUT_READ),

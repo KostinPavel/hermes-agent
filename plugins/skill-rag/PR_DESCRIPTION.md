@@ -44,16 +44,35 @@ skill-rag/
 
 ### Configuration
 
-All settings are configurable via environment variables or `~/.hermes/config.yaml`:
+Behavioral settings are read from `~/.hermes/config.yaml` via the standard Hermes plugin config mechanism (`plugins.entries.skill-rag.settings.*`):
 
-| Variable | Default | Description |
+```yaml
+plugins:
+  entries:
+    skill-rag:
+      settings:
+        provider: openai_compatible    # openai_compatible | local
+        api_base: http://localhost:1234/v1  # LM Studio endpoint
+        api_model: text-embedding-bge-m3    # Embedding model name
+        top_k: 5                       # Number of recommendations
+        threshold: 0.3                 # Min cosine similarity
+        history_window: 4              # Recent messages for query
+        assistant_truncate: 500        # Assistant response truncation
+```
+
+| Setting | Default | Description |
 |---|---|---|
-| `SKILL_RAG_PROVIDER` | `openai_compatible` | Embedding provider (`openai_compatible` or `local`) |
-| `SKILL_RAG_API_BASE` | `http://localhost:11434/v1` | Embedding API endpoint |
-| `SKILL_RAG_API_KEY` | `local-not-needed` | API key for embedding endpoint |
-| `SKILL_RAG_API_MODEL` | `nomic-embed-text` | Model name for embeddings |
+| `provider` | `openai_compatible` | Embedding provider (`openai_compatible` or `local`) |
+| `api_base` | `http://localhost:1234/v1` | Embedding API endpoint |
+| `api_model` | `text-embedding-bge-m3` | Model name for embeddings |
+| `top_k` | `5` | Number of skill recommendations |
+| `threshold` | `0.3` | Min cosine similarity for vector search |
+| `history_window` | `4` | Number of recent messages for query |
+| `assistant_truncate` | `500` | Max assistant response length in query |
 
-Additional tunables: `TOP_K` (5), `THRESHOLD` (0.3), `HISTORY_WINDOW` (4), `ASSISTANT_TRUNCATE` (500), `FIELD_MAX_LEN` (300), `EMBEDDING_DIM` (1024).
+`API_KEY` is a secret and stays in `~/.hermes/.env` (usually not needed for local APIs).
+
+Additional constants: `FIELD_MAX_LEN` (300), `EMBEDDING_DIM` (1024), `API_BATCH_SIZE` (16).
 
 ### System Prompt Opt-Out (Generic)
 
@@ -68,20 +87,21 @@ This makes the system prompt skip the static `<available_skills>` block. **This 
 
 ## Test Coverage
 
-79 unit tests across 5 test classes, covering:
+14 unit tests across 5 test classes, covering:
 
 | Module | Tests | Coverage |
 |---|---|---|
-| `retrieval.py` (context extraction, query building, vector/BM25 search) | 24 | Message parsing, query construction, dedup, vector search, BM25 fallback, context assembly |
-| `indexer.py` (schema, scanning, upsert, embedding) | 18 | Frontmatter parsing, path IDs, content hashes, compose text, schema init, skill scanning, upsert with/without vectors |
-| `__init__.py` (plugin hooks, registration) | 6 | Hook registration, empty input handling, lifecycle reindexing, plugin.yaml validation |
-| `config.py` (defaults, constants) | 2 | Default provider, constant existence |
-| Legacy injector tests (compatibility) | 29 | Marker formatting, context extraction, context building |
+| `indexer.py` (schema, scanning, visibility filtering) | 5 | Schema init, skill scanning, count tracking, content hash, path ID |
+| `retrieval.py` (query building, vector search) | 4 | Empty query, simple query, injected block stripping, empty retrieval |
+| `__init__.py` (plugin manifest) | 2 | plugin.yaml existence, hook registration |
+| `config.py` (home resolution) | 1 | HERMES_HOME resolved via get_hermes_home() |
+| Core config flag | 1 | `skills.prompt_index` flag accessible |
+| Real discovery integration | 1 | Plugin loads through PluginManager, hooks registered |
 
 ```bash
 # Run all tests (no API required)
-cd ~/.hermes/plugins/skill-rag
-python -m pytest tests/test_skill_rag.py -v
+cd ~/.hermes/hermes-agent
+python -m pytest tests/plugins/test_skill_rag.py -v
 ```
 
 ## Security Measures
@@ -144,3 +164,8 @@ The plugin activates automatically on the next Hermes session. No manual configu
 - [x] Home resolution via `hermes_constants.get_hermes_home()` (canonical Hermes pattern)
 - [x] System prompt opt-out via generic `skills.prompt_index: false` config flag (no plugin-specific logic in core)
 - [x] Complies with `plugins/AGENTS.md` policy (plugins never touch core)
+- [x] Behavioral settings via `ctx.get_config()` (standard Hermes plugin config mechanism)
+- [x] API_KEY as env var (secret, not in config.yaml)
+- [x] Tests use real discovery path (PluginManager integration test)
+- [x] No source-reading tests (behaviour assertions only)
+- [x] Dependencies have upper bounds (requirements.txt)

@@ -58,38 +58,51 @@ pip install sentence-transformers  # ~2GB with PyTorch
 
 ## Configuration
 
-### Environment Variables
+### Behavioral Settings (config.yaml)
 
-| Variable | Default | Description |
-|---|---|---|
-| `SKILL_RAG_PROVIDER` | `openai_compatible` | Embedding provider: `openai_compatible` or `local` |
-| `SKILL_RAG_API_BASE` | `http://localhost:11434/v1` | Embedding API endpoint (OpenAI-compatible) |
-| `SKILL_RAG_API_KEY` | `local-not-needed` | API key for embedding endpoint |
-| `SKILL_RAG_API_MODEL` | `nomic-embed-text` | Model name for embedding |
-
-### config.yaml
-
-You can also configure via `~/.hermes/config.yaml`:
+Behavioral settings are read from `~/.hermes/config.yaml` via the standard Hermes plugin config mechanism:
 
 ```yaml
 plugins:
-  skill-rag:
-    provider: openai_compatible
-    api_base: http://localhost:1234/v1  # LM Studio
-    api_model: text-embedding-bge-m3
-    top_k: 5
-    threshold: 0.75
+  entries:
+    skill-rag:
+      settings:
+        provider: openai_compatible    # openai_compatible | local
+        api_base: http://localhost:1234/v1  # LM Studio endpoint
+        api_model: text-embedding-bge-m3    # Embedding model name
+        top_k: 5                       # Number of recommendations
+        threshold: 0.3                 # Min cosine similarity (0.75 too high for bge-m3)
+        history_window: 4              # Recent messages for query
+        assistant_truncate: 500        # Assistant response truncation
+```
+
+| Setting | Default | Description |
+|---|---|---|
+| `provider` | `openai_compatible` | Embedding provider: `openai_compatible` or `local` |
+| `api_base` | `http://localhost:1234/v1` | Embedding API endpoint (OpenAI-compatible) |
+| `api_model` | `text-embedding-bge-m3` | Model name for embedding |
+| `top_k` | `5` | Number of skill recommendations |
+| `threshold` | `0.3` | Min cosine similarity for vector search |
+| `history_window` | `4` | Number of recent messages for query |
+| `assistant_truncate` | `500` | Max assistant response length in query |
+
+### Secret (Environment Variable)
+
+`API_KEY` is a secret and stays in `~/.hermes/.env`:
+
+```bash
+SKILL_RAG_API_KEY=your-api-key-here  # Usually not needed for local APIs
 ```
 
 ### Supported Embedding Providers
 
 | Provider | Setup | Notes |
 |---|---|---|
-| **LM Studio** | Load any embedding model, set `SKILL_RAG_API_BASE=http://localhost:1234/v1` | Recommended for local use |
-| **Ollama** | `ollama pull nomic-embed-text` | Default endpoint (port 11434) |
-| **vLLM** | Run with `--embedding-model` | OpenAI-compatible API |
-| **llama.cpp** | Server mode with embedding model | OpenAI-compatible API |
-| **local** | `pip install sentence-transformers` | Offline, uses `intfloat/multilingual-e5-small` |
+| **LM Studio** | Load any embedding model, set `api_base: http://localhost:1234/v1` | Recommended for local use |
+| **Ollama** | `ollama pull nomic-embed-text`, set `api_base: http://localhost:11434/v1` | Default endpoint (port 11434) |
+| **vLLM** | Run with `--embedding-model`, set `api_base` accordingly | OpenAI-compatible API |
+| **llama.cpp** | Server mode with embedding model, set `api_base` | OpenAI-compatible API |
+| **local** | Set `provider: local`, `pip install sentence-transformers` | Offline, uses `intfloat/multilingual-e5-small` |
 
 ## Architecture
 
