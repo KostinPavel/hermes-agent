@@ -40,6 +40,7 @@ import {
   retainGatewayForAgent
 } from '@/store/gateway'
 import { $pinnedSessionIds } from '@/store/layout'
+import { $notifications } from '@/store/notifications'
 import {
   $activeGatewayProfile,
   $newChatConnectionId,
@@ -51,7 +52,6 @@ import {
 } from '@/store/profile'
 import { $projectScope, ALL_PROJECTS } from '@/store/project-scope'
 import { $projectTree } from '@/store/projects'
-import { $notifications } from '@/store/notifications'
 import {
   $activeSessionId,
   $activeSessionStoredIdRotation,
@@ -110,8 +110,8 @@ import {
   knownOwnerForSession,
   openSessionTileForProfile,
   publishSessionState,
-  requestForOwnedSession,
   reopenLastClosedTile,
+  requestForOwnedSession,
   sessionTileOwnerRoute
 } from '@/store/session-states'
 import { $sessionSeenCounts, $unreadFinishedMarkers } from '@/store/session-unread'
@@ -2494,6 +2494,7 @@ function BranchHarness({
     syncSessionStateToView: vi.fn(),
     updateSessionState: (sessionId, updater, storedSessionId) => {
       const current = sessionStates.current.get(sessionId) ?? createClientSessionState(storedSessionId ?? null)
+
       const next = updater(
         storedSessionId !== undefined && current.storedSessionId !== storedSessionId
           ? { ...current, storedSessionId }
