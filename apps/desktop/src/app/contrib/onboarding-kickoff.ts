@@ -11,7 +11,6 @@ import { prefetchConnectorCatalog } from '@/store/connector-catalog'
 import { activeGatewayConnectionId, requestGatewayForProfile } from '@/store/gateway'
 import { notify } from '@/store/notifications'
 import { $setupProfileName, type GuideKickoffResult } from '@/store/onboarding-gate'
-import { $introView } from '@/store/onboarding-intro'
 import { prefetchOnboardingPlugins } from '@/store/onboarding-plugins'
 import {
   $activeGatewayProfile,
@@ -23,6 +22,7 @@ import {
 import { $activeSessionId, $selectedStoredSessionId } from '@/store/session'
 import { $sessionStates } from '@/store/session-states'
 
+import { createKickoffMachine, KickoffFailure, NO_DEADLINE } from './onboarding-kickoff-machine'
 import type { AmbientGatewayRequest } from './session-rpc-dispatcher'
 
 function prefetchGuideCatalogs(storedId: null | string): void {
@@ -128,43 +128,73 @@ export function useOnboardingKickoff({ requestGateway, resumeSession, runSlashCo
     const previousConnectionId = activeGatewayConnectionId()
     const previousSetupSession = $setupSession.get()
     const previousThreadIds = $chatOnboardingThreadIds.get()
+    const machine = createKickoffMachine()
     let swapped = false
 
     try {
-      const { name: setupProfile } = await requestGateway<OnboardingEnsureSetupProfileResult>(
-        'onboarding.ensure_setup_profile',
-        {}
-      )
+      // Every call here is idempotent, so a retry repeats the whole step. The calls carry no deadline: a cold
+      // first boot answers them late, and the machine fails on the signals that mean it never will.
+      const prepared = await machine.attempt('preparing', async () => {
+        const { name: setupProfile } = await requestGateway<OnboardingEnsureSetupProfileResult>(
+          'onboarding.ensure_setup_profile',
+          {},
+          NO_DEADLINE
+        )
 
-      $setupProfileName.set(setupProfile)
+        $setupProfileName.set(setupProfile)
 
-      const record = await requestGatewayForProfile<SetupStatus>(setupProfile, 'setup.status', {})
+        // Foreground: the user is watching the starting screen, so a cold spawn of the setup profile's
+        // backend takes the reserved slot and skips the background redial cooldown.
+        const record = await requestGatewayForProfile<SetupStatus>(
+          setupProfile,
+          'setup.status',
+          {},
+          NO_DEADLINE,
+          undefined,
+          { spawnPriority: 'foreground' }
+        )
 
-      if (record.ready !== true || record.provider_configured !== true) {
+        if (record.ready !== true || record.provider_configured !== true) {
+          // A retry after the swap saw a ready provider the first time; the swap has to be undone.
+          if (swapped) {
+            throw new KickoffFailure('Inference stopped reporting ready while the welcome chat opened.')
+          }
+
+          return null
+        }
+
+        if (!swapped) {
+          takeGuideShape()
+          rememberLaunchSource()
+          swapped = true
+          $newChatRoute.set(null)
+          $newChatProfile.set(setupProfile)
+        }
+
+        await ensureGatewayProfile(setupProfile)
+
+        // Finds the setup chat by title or creates it; `empty` is true only before its first turn.
+        const setupChat = await requestGateway<OnboardingEnsureSetupSessionResult>(
+          'onboarding.ensure_setup_session',
+          {},
+          NO_DEADLINE
+        )
+
+        return { record, setupChat, setupProfile }
+      })
+
+      if (!prepared) {
+        machine.enter('off', 'no inference ready')
+
         return 'off'
       }
 
-      // The gate gave up waiting (its deadline): the app is already on its normal layout.
-      const stillStarting = () => {
-        if ($introView.get() !== 'starting') {
-          throw new Error('The welcome chat took too long to open.')
-        }
-      }
+      const { record, setupChat, setupProfile } = prepared
 
-      stillStarting()
-      takeGuideShape()
-      rememberLaunchSource()
-      swapped = true
-      $newChatRoute.set(null)
-      $newChatProfile.set(setupProfile)
-      await ensureGatewayProfile(setupProfile)
-      stillStarting()
+      machine.enter('opening', `session ${setupChat.session_id}`)
 
       const guideRequest: AmbientGatewayRequest = (method, params, timeout) =>
         requestGatewayForProfile(setupProfile, method, params, timeout)
-
-      // Finds the setup chat by title or creates it; `empty` is true only before its first turn.
-      const setupChat = await requestGateway<OnboardingEnsureSetupSessionResult>('onboarding.ensure_setup_session', {})
 
       const runtimeId = await adoptGuideSession(
         setupProfile,
@@ -173,8 +203,6 @@ export function useOnboardingKickoff({ requestGateway, resumeSession, runSlashCo
         resumeSession,
         guideRequest
       )
-
-      stillStarting()
 
       // A relaunch reopens the same setup chat; one whose opening was cut off is sent the command again.
       const opening = setupChat.empty ? { blank: true, stalled: true } : setupChatOpening(runtimeId)
@@ -189,8 +217,11 @@ export function useOnboardingKickoff({ requestGateway, resumeSession, runSlashCo
         )
       }
 
+      machine.enter('started')
+
       return 'started'
     } catch (error) {
+      machine.enter('failed', error instanceof Error ? error.message : String(error))
       $newChatProfile.set(previousNewChatProfile)
       $newChatRoute.set(previousNewChatRoute)
       $setupSession.set(previousSetupSession)
@@ -215,6 +246,8 @@ export function useOnboardingKickoff({ requestGateway, resumeSession, runSlashCo
       })
 
       return 'failed'
+    } finally {
+      machine.dispose()
     }
   }, [requestGateway, resumeSession, runSlashCommand])
 }
