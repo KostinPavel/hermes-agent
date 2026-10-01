@@ -245,7 +245,10 @@ export function clearClarifyRequest(requestId?: string, sessionId?: string | nul
 
 export interface SetupChooseStage {
   draft: string
-  /** The name each staged row showed, by id, so a typed answer still names the rows staged with it. */
+  /**
+   * The name each row of the card shows, by id: a typed answer still names the rows staged with it, and
+   * composer text is matched against the rows of a card whose list the app owns.
+   */
   labels: Record<string, string>
   picked: string[]
   revert: (() => void) | null
@@ -367,23 +370,7 @@ export function answerClarifyRequest(sessionId: string | null | undefined, text:
   }
 
   if (request.setup) {
-    // A multi-select picker keeps the rows already staged on the card, the
-    // same as its own Confirm: the typed words are one more pick.
-    const stage = setupChooseStage(request.requestId)
-    const answer = setupChooseAnswer(request.setup.multiSelect ? [...stage.picked, text] : text, stage.labels)
-
-    if (!respondToServerRequest(request.requestId, answer)) {
-      return false
-    }
-
-    if (request.setup.multiSelect) {
-      commitSetupChoose(request.requestId)
-    }
-
-    clearClarifyRequest(request.requestId, request.sessionId)
-    settleClarify(request, { outcome: 'submitted', ...answer })
-
-    return true
+    return answerSetupChoose(request, request.setup, text)
   }
 
   // A reconnect replay can arrive with answers already locked server-side;
@@ -402,6 +389,54 @@ export function answerClarifyRequest(sessionId: string | null | undefined, text:
     outcome: 'submitted',
     responses: request.questions.map(question => settledResponse(question, { ...locked, ...answers }))
   })
+
+  return true
+}
+
+/** The row typed text names, by id or label (any case). */
+function matchSetupRow(labels: Record<string, string>, text: string): string | undefined {
+  const typed = text.trim().toLowerCase()
+
+  return Object.keys(labels).find(id => id.toLowerCase() === typed || labels[id].trim().toLowerCase() === typed)
+}
+
+function answerSetupChoose(request: ClarifyRequest, setup: SetupChooseSpec, text: string): boolean {
+  const stage = setupChooseStage(request.requestId)
+  // The backend fills its own rows into the request; the app's lists are known to the card that drew them.
+  const labels = setup.options ? Object.fromEntries(setup.options.map(row => [row.id, row.label])) : stage.labels
+  const freeText = setup.kind === 'question' && !setup.options
+  const id = freeText ? text : matchSetupRow(labels, text)
+
+  if (id === undefined) {
+    // Words that name no row are not a pick: the model reads them and asks again.
+    if (!respondToServerRequest(request.requestId, { said: text })) {
+      return false
+    }
+
+    clearClarifyRequest(request.requestId, request.sessionId)
+    settleClarify(request, { outcome: 'typed', picked: null, said: text })
+
+    return true
+  }
+
+  // A multi-select picker keeps the rows already staged on the card, the
+  // same as its own Confirm: the typed row is one more pick.
+  const answer = setupChooseAnswer(
+    setup.multiSelect ? [...new Set([...stage.picked, id])] : id,
+    freeText ? stage.labels : { ...stage.labels, ...labels }
+  )
+
+  if (!respondToServerRequest(request.requestId, answer)) {
+    return false
+  }
+
+  // Keep the look of a row already previewed on the card; any other preview reverts with the request.
+  if (setup.multiSelect || stage.picked.includes(id)) {
+    commitSetupChoose(request.requestId)
+  }
+
+  clearClarifyRequest(request.requestId, request.sessionId)
+  settleClarify(request, { outcome: 'submitted', ...answer })
 
   return true
 }

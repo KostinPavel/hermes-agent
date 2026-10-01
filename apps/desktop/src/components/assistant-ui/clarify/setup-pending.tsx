@@ -36,6 +36,12 @@ import { UndeliveredNotice } from './undelivered-notice'
 
 type SetupSource = Pick<ClarifyRequest, 'questions' | 'setup'>
 
+function sameLabels(a: Record<string, string>, b: Record<string, string>): boolean {
+  const ids = Object.keys(a)
+
+  return ids.length === Object.keys(b).length && ids.every(id => a[id] === b[id])
+}
+
 const KIND_ICONS: Record<SetupChooseKind, ComponentType<{ className?: string }>> = {
   accent: Palette,
   connectors: Plug,
@@ -79,13 +85,23 @@ export function SetupChoosePending({
   const preselected = setup?.preselected
   const rowLabels = useMemo(() => Object.fromEntries((rows ?? []).map(row => [row.id, row.label])), [rows])
 
-  // Start the card with the rows the scan saw in use, once its list is known; the card may not list them all.
+  // Once the list is known, record its names (composer text is matched against them) and start the card with
+  // the rows the scan saw in use; the card may not list them all.
   useEffect(() => {
-    if (requestId && rows && preselected?.length && !$setupChooseStages.get()[requestId]) {
-      const ids = new Set(rows.map(row => row.id))
-
-      stageSetupChoose(requestId, { labels: rowLabels, picked: preselected.filter(id => ids.has(id)) })
+    if (!requestId || !rows) {
+      return
     }
+
+    const current = $setupChooseStages.get()[requestId]
+
+    if (current && sameLabels(current.labels, rowLabels)) {
+      return
+    }
+
+    const ids = new Set(rows.map(row => row.id))
+    const scanned = !current && preselected?.length ? { picked: preselected.filter(id => ids.has(id)) } : {}
+
+    stageSetupChoose(requestId, { labels: rowLabels, ...scanned })
   }, [preselected, requestId, rowLabels, rows])
 
   const question: ClarifyQuestion = useMemo(

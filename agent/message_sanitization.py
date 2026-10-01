@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from functools import partial
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from agent.message_metadata import DB_ROW_SNAPSHOT
 from agent.vision_message_prep import _provider_model_key
@@ -528,16 +528,19 @@ def coalesce_tool_call_id(tc: Any) -> str:
     return ""
 
 
-def uniquify_tool_call_ids(tool_calls: list) -> list:
-    """Ensure every tool call in one assistant turn has a distinct id.
+def uniquify_tool_call_ids(tool_calls: list, taken: Iterable[str] = ()) -> list:
+    """Ensure every tool call in one assistant turn has an id no other call in the session has.
 
-    Some providers reuse one id across a batch; the pre-API sanitizer then keeps only the
-    first call/result pair per id and strict providers reject duplicates. Later collisions
-    get a deterministic ``<id>_d<n>`` suffix (never uuid4 — cache-prefix stability). Mutates
-    entries (SDK models / SimpleNamespace / dicts) in place. Blank ids are left for the
-    deterministic fallback in ``build_assistant_message``.
+    Some providers reuse one id across a batch, and some name every call ``call_0`` turn after
+    turn; the pre-API sanitizer then keeps only the first call/result pair per id, strict
+    providers reject duplicates, and the desktop binds a tool card to the wrong call. ``taken``
+    is the ids already in this session's history: they are never rewritten (prompt cache), so
+    the incoming call is renamed instead. Collisions get a deterministic ``<id>_d<n>`` suffix
+    (never uuid4 — cache-prefix stability). Mutates entries (SDK models / SimpleNamespace /
+    dicts) in place. Blank ids are left for the deterministic fallback in
+    ``build_assistant_message``.
     """
-    seen: set = set()
+    seen: set = set(taken)
     for tc in tool_calls or []:
         # Same coalescing rule as coalesce_tool_call_id, tolerant of non-string ids.
         raw = _tc_field(tc, "call_id") or _tc_field(tc, "id") or ""
@@ -564,8 +567,8 @@ def uniquify_tool_call_ids(tool_calls: list) -> list:
             continue
         _fn_name = _tc_field(_tc_field(tc, "function"), "name") or "?"
         logger.warning(
-            "Model reused tool call id %s within one turn; renamed the duplicate to %s (tool=%s) to keep "
-            "call/result pairing lossless.", cid, new_id, _fn_name,
+            "Model reused tool call id %s; renamed the duplicate to %s (tool=%s) to keep call/result "
+            "pairing lossless.", cid, new_id, _fn_name,
         )
     return tool_calls
 

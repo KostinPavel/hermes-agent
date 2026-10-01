@@ -29,7 +29,9 @@ export const ClarifyTool = (props: ToolCallMessagePartProps) => {
 
 // The request each tool row asked, remembered past its clearing and past a
 // remount (a session switch, a stopped turn): a skip or a typed answer settles
-// it in the store before (or without) `tool.complete`.
+// it in the store before (or without) `tool.complete`. Keyed by session,
+// message and call: some providers name every call "call_0", and a bare call id
+// would show a later card the answer of an earlier one.
 const requestIdByToolCall = new Map<string, string>()
 
 function ClarifyToolLive(props: ToolCallMessagePartProps) {
@@ -43,16 +45,18 @@ function ClarifyToolLive(props: ToolCallMessagePartProps) {
   const fromArgs = useMemo(() => readClarifyArgs(props.args), [props.args])
   const setupArgs = useMemo(() => normalizeSetupChoose(parseMaybeObject(props.args)), [props.args])
   const messageRunning = useAuiState(selectMessageRunning)
+  const messageId = useAuiState(s => s.message.id)
+  const rowKey = `${sessionId ?? ''}:${messageId}:${props.toolCallId}`
   // Answering clears the request a beat before `tool.complete` swaps in the
   // settled card. Latch submit so that gap doesn't demote; Stop also clears
   // the request and must still collapse an unanswered card.
   const [answered, setAnswered] = useState(false)
   const settledResults = useStore($settledClarifyResults)
-  const requestId = requestIdByToolCall.get(props.toolCallId)
+  const requestId = requestIdByToolCall.get(rowKey)
   const settledResult = requestId && request?.requestId !== requestId ? settledResults[requestId] : undefined
 
   if (request && !settledResult && request.requestId !== requestId) {
-    requestIdByToolCall.set(props.toolCallId, request.requestId)
+    requestIdByToolCall.set(rowKey, request.requestId)
   }
 
   const undelivered = useUndeliveredClarify(sessionId, messageRunning && !request && !answered && !settledResult)

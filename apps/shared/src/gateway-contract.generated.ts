@@ -4397,6 +4397,7 @@ export interface SetupChooseOption {
 export interface SetupChooseResult {
   picked?: string | string[] | null
   label?: string | string[] | null
+  said?: string | null
 }
 /** ``tui_gateway/server.py::_approval_request_payload`` — the command is redacted server-side. */
 export interface ApprovalRequestParams {

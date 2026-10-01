@@ -14,7 +14,7 @@ import { parseMaybeObject } from '../tool/fallback-model/format'
 import { ClarifyShell } from './core/shell'
 import { useSetupLabel } from './setup-rows'
 
-const OUTCOMES = new Set(['cancelled', 'no_answer', 'submitted'])
+const OUTCOMES = new Set(['cancelled', 'no_answer', 'submitted', 'typed'])
 
 function readSetupChooseResult(result: unknown) {
   const row = parseMaybeObject(result)
@@ -27,7 +27,10 @@ function readSetupChooseResult(result: unknown) {
   // Rows the backend filled (tour, fork) are not in the call's args; the result names the pick.
   const labels = Array.isArray(row.label) ? row.label.map(String) : typeof row.label === 'string' ? [row.label] : null
 
-  return { labels, outcome: row.outcome, picked }
+  // Composer words that named no row: shown as written, never as a pick.
+  const said = row.outcome === 'typed' && typeof row.said === 'string' ? row.said : null
+
+  return { labels, outcome: row.outcome, picked, said }
 }
 
 export function SetupChooseSettled(props: ToolCallMessagePartProps) {
@@ -42,7 +45,7 @@ export function SetupChooseSettled(props: ToolCallMessagePartProps) {
     return <ToolFallback {...props} />
   }
 
-  const answer = (result.labels ?? result.picked.map(label)).join(', ')
+  const answer = result.said ?? (result.labels ?? result.picked.map(label)).join(', ')
 
   const question = source?.questions[0]?.question
 

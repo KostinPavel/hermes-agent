@@ -42,6 +42,12 @@ _FIGURE = "Hand off now with start_chat; the ask is \"Let's figure out a first t
 _MACHINE_USE_SKIPPED = "Hand off with the machine-setup plan and leave their use out."
 _RESEND = ("If this text does not answer the card, answer it in a sentence or two, then send this card again in "
            "the same turn: {card}")
+# Composer text that names no row of a card with fixed rows: their words, not a pick.
+_TYPED = ("They typed this instead of picking. Reply to it in a sentence or two, then send this card again in the "
+          "same turn so they can pick: {card}")
+# On a first-task card typed words can be the task itself.
+_TYPED_TASK = ("They typed this instead of picking. If it names a task, that is their first task: hand off with it. "
+               "Otherwise reply to it in a sentence or two, then send this card again in the same turn: {card}")
 
 
 def _card(kind: str, question: str, multi_select: bool = False, options: Optional[list] = None) -> str:
@@ -91,6 +97,10 @@ def _normalize_options(options) -> tuple:
 def _result(reply: Optional[dict], options: Optional[list]) -> dict:
     if reply is None:
         return {"outcome": "no_answer", "picked": None, "notice": _NO_ANSWER}
+    # The desktop sends `said` only after matching the text against the card's rows by id and label.
+    said = reply.get("said")
+    if isinstance(said, str) and said.strip():
+        return {"outcome": "typed", "picked": None, "said": said.strip()}
     picked = reply.get("picked")
     if picked is None:
         return {"outcome": "cancelled", "picked": None}
@@ -124,6 +134,9 @@ def _follow_up(kind: str, card: str, result: dict, rows: Optional[list], cards: 
             extra["handoff"] = {"message": handoff["message"], "plan": handoff[plan]}
             state["plan_sent"] = plan
         state["fork_seen"] = True
+    if outcome == "typed":
+        task_card = kind == "fork" or (kind == "question" and state.get("fork_seen"))
+        return {**extra, "next": (_TYPED_TASK if task_card else _TYPED).format(card=card)}, state
     step = state.get("step", -1)
     skipped = outcome == "cancelled" or (kind == "fork" and picked == "skip")
     if skipped and kind == "machine_use":
@@ -261,10 +274,12 @@ SETUP_CHOOSE_SCHEMA = {
         "app's own list for the pickers, tour, fork and machine_use, and free text "
         "for kind='question'. With options the user may still type an answer. "
         "multi_select lets the user pick several rows. Result: {outcome, picked, "
-        "label?, next?, handoff?}. outcome is submitted, cancelled or no_answer (with "
-        "a notice saying why; an app list with nothing to offer returns it at once, "
-        "with no card). picked is the chosen option id (or the typed text) as a "
-        "string, or a list of ids with multi_select; label is the name the user saw "
+        "label?, said?, next?, handoff?}. outcome is submitted, typed, cancelled or "
+        "no_answer (with a notice saying why; an app list with nothing to offer "
+        "returns it at once, with no card). typed means the user wrote words that "
+        "match no row: `said` holds them and nothing was picked. picked is the "
+        "chosen option id (or the free-text answer) as a string, or a list of ids "
+        "with multi_select; label is the name the user saw "
         "for each pick, so say the label, never the id. "
         "Do what `next` says. `handoff` holds the start_chat message's parts and plan."
     ),
