@@ -559,8 +559,8 @@ import {
   opacityNeedsSetting,
   translucencySupportedOn,
   vibrancyFor as vibrancyForTranslucency,
-  windowBackingOptions,
   windowBackgroundMaterialOptions,
+  windowBackingOptions,
   windowOpacityFor,
   windowOpacityOptions
 } from './translucency'
