@@ -26,6 +26,7 @@ const customStyleEl = () => window.document.getElementById('hermes-desktop-custo
 function ThemeProbe({ onReady }: { onReady: (api: ReturnType<typeof useTheme>) => void }) {
   const api = useTheme()
   onReady(api)
+
   return null
 }
 
