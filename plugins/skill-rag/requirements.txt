@@ -1,0 +1,6 @@
+pyyaml>=6.0
+numpy>=1.24
+# Опционально, только для EMBEDDING_PROVIDER=local:
+# sentence-transformers>=2.2.0
+# Опционально, только для EMBEDDING_PROVIDER=openai_compatible:
+# requests>=2.28
