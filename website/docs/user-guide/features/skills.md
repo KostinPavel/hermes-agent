@@ -692,6 +692,31 @@ in the pending JSON file). Memory writes have the same gate under
 > (dangerous-pattern heuristics), not an approval gate — the two are
 > independent. See [Guard on agent-created skill writes](../configuration.md#guard-on-agent-created-skill-writes).
 
+### System-prompt skill index (`skills.presentation`)
+
+Every session includes a static index of installed skills in the system prompt — the `<available_skills>` block the agent scans before replying. With many skills installed that block grows large, and sometimes a retrieval plugin (or your own tooling) should own discovery instead. `skills.presentation` controls how the static index renders:
+
+```yaml
+skills:
+  presentation: full        # full | essential-only | off (default: full)
+```
+
+| Value | System prompt contains |
+|---|---|
+| `full` | Category headers with per-skill descriptions (default) |
+| `essential-only` | Only never-disableable essential skills (e.g. `hermes-agent`) |
+| `off` | No `<available_skills>` block at all — the surrounding skill-loading guidance stays |
+
+Details worth knowing:
+
+- **`off` keeps the guidance.** The "scan the skills below" instructions and the skill_manage / self-improvement reminders remain; only the index block is omitted. This is the mode a retrieval plugin expects — it injects its own discovery content in place of the static block.
+- **`essential-only` is the failure floor.** If an embedding model or retrieval backend dies, this mode still guarantees the agent sees its essential skills. If no essential skills are on disk, it degrades to `off` (guidance stays).
+- **Renamed before merge.** The draft flag `skills.prompt_index` became `skills.presentation` prior to any release — no alias is kept. If you tried the draft trial instructions, rename the key in your config.
+- **Fail-safe default.** Unknown values log a warning and fall back to `full` — the index is never silently dropped. Value comparison is case-insensitive; YAML bare `off`/`on` parse as booleans and are accepted (`off` → `off`, `on` → `full`).
+- The mode is read when the system prompt is built (applies to the next session) and is part of the prompt cache key — switching modes never serves a stale cached block.
+
+See [Skill index presentation](../configuration.md#system-prompt-skill-index-skillspresentation) in the configuration reference.
+
 ## Skills Hub
 
 Browse, search, install, and manage skills from online registries, `skills.sh`, direct well-known skill endpoints, and official optional skills.

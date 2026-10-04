@@ -298,6 +298,132 @@ class TestBuildSkillsSystemPrompt:
         assert "Write threads" in full
 
 
+    def _write_config(self, tmp_path, text: str) -> None:
+        """Write config.yaml into the temp HERMES_HOME and drop the raw-config cache."""
+        (tmp_path / "config.yaml").write_text(text)
+        from agent.skill_utils import _raw_config_cache_clear
+        _raw_config_cache_clear()
+
+    def _make_skill(self, tmp_path, category: str, name: str, description: str) -> None:
+        d = tmp_path / "skills" / category / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n")
+
+    def test_presentation_off_keeps_guidance_without_index_block(self, monkeypatch, tmp_path):
+        """skills.presentation=off: loading guidance stays, <available_skills> block is gone (#131337)."""
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        self._write_config(tmp_path, "skills:\n  presentation: off\n")
+        self._make_skill(tmp_path, "tools", "search", "Search stuff")
+        result = build_skills_system_prompt()
+        assert "## Skills" in result
+        assert "skill_view" in result  # loading guidance stays
+        assert "skills_list" in result  # off-mode guidance names the discovery owner
+        assert "<available_skills>\n" not in result  # no real block (sentence mentions the tag inline)
+        assert "Search stuff" not in result  # no index entries
+
+    def test_presentation_essential_only_lists_only_essential(self, monkeypatch, tmp_path):
+        """essential-only: only ESSENTIAL_SKILLS entries render (failure-floor mode)."""
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        self._write_config(tmp_path, "skills:\n  presentation: essential-only\n")
+        self._make_skill(tmp_path, "autonomous-ai-agents", "hermes-agent", "Use Hermes")
+        self._make_skill(tmp_path, "tools", "web-search", "Search the web")
+        result = build_skills_system_prompt()
+        assert "<available_skills>" in result
+        assert "hermes-agent" in result
+        assert "web-search" not in result
+        assert "Search the web" not in result
+        assert "skills.presentation=essential-only" in result
+
+    def test_presentation_essential_only_degrades_to_guidance_when_empty(self, monkeypatch, tmp_path):
+        """essential-only with no essential skills on disk keeps guidance, drops the block."""
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        self._write_config(tmp_path, "skills:\n  presentation: essential-only\n")
+        self._make_skill(tmp_path, "tools", "web-search", "Search the web")
+        result = build_skills_system_prompt()
+        assert "## Skills" in result
+        assert "skill_view" in result
+        assert "<available_skills>\n" not in result
+
+    def test_presentation_essential_only_ignores_compact_categories(self, monkeypatch, tmp_path):
+        """The essential-only floor keeps full descriptions even under compact_categories demotion."""
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        self._write_config(tmp_path, "skills:\n  presentation: essential-only\n")
+        self._make_skill(tmp_path, "autonomous-ai-agents", "hermes-agent", "Use Hermes")
+        result = build_skills_system_prompt(compact_categories=frozenset({"autonomous-ai-agents"}))
+        assert "hermes-agent: Use Hermes" in result
+        assert "[names only]" not in result
+
+    def test_presentation_off_oneshot_names_discovery_owner(self, monkeypatch, tmp_path):
+        """oneshot + off: oneshot guidance plus the discovery-owner note, no block."""
+        import agent.oneshot_footprint as oneshot_mod
+        from agent.oneshot_footprint import ONESHOT_SKILLS_LOAD_GUIDANCE
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        self._write_config(tmp_path, "skills:\n  presentation: off\n")
+        self._make_skill(tmp_path, "tools", "search", "Search stuff")
+        monkeypatch.setattr(oneshot_mod, "is_single_query_session", lambda: True)
+        result = build_skills_system_prompt()
+        assert result.startswith(ONESHOT_SKILLS_LOAD_GUIDANCE)
+        assert "skills_list" in result
+        assert "<available_skills>\n" not in result
+
+    def test_presentation_essential_only_oneshot_keeps_block(self, monkeypatch, tmp_path):
+        """oneshot + essential-only: oneshot guidance with the filtered block intact."""
+        import agent.oneshot_footprint as oneshot_mod
+        from agent.oneshot_footprint import ONESHOT_SKILLS_LOAD_GUIDANCE
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        self._write_config(tmp_path, "skills:\n  presentation: essential-only\n")
+        self._make_skill(tmp_path, "autonomous-ai-agents", "hermes-agent", "Use Hermes")
+        self._make_skill(tmp_path, "tools", "web-search", "Search the web")
+        monkeypatch.setattr(oneshot_mod, "is_single_query_session", lambda: True)
+        result = build_skills_system_prompt()
+        assert result.startswith(ONESHOT_SKILLS_LOAD_GUIDANCE)
+        assert "hermes-agent" in result
+        assert "web-search" not in result
+        assert "<available_skills>\n" in result
+
+    def test_presentation_unknown_value_falls_back_to_full(self, monkeypatch, tmp_path, caplog):
+        """Unknown skills.presentation values fall back to full — never silently drop the index."""
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        self._write_config(tmp_path, "skills:\n  presentation: bogus\n")
+        self._make_skill(tmp_path, "tools", "search", "Search stuff")
+        with caplog.at_level(logging.WARNING):
+            result = build_skills_system_prompt()
+        assert "<available_skills>" in result
+        assert "search: Search stuff" in result
+        assert "skills.presentation" in caplog.text
+
+    def test_presentation_modes_miss_cache_separately(self, monkeypatch, tmp_path):
+        """The cache key includes presentation: switching modes must not serve a stale entry."""
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        self._make_skill(tmp_path, "tools", "search", "Search stuff")
+        self._make_skill(tmp_path, "autonomous-ai-agents", "hermes-agent", "Use Hermes")
+        full = build_skills_system_prompt()
+        assert "search: Search stuff" in full
+        self._write_config(tmp_path, "skills:\n  presentation: essential-only\n")
+        essential = build_skills_system_prompt()
+        assert "hermes-agent" in essential
+        assert "Search stuff" not in essential
+        self._write_config(tmp_path, "skills:\n  presentation: off\n")
+        off = build_skills_system_prompt()
+        assert "<available_skills>\n" not in off
+        assert "skill_view" in off
+
+    def test_skills_presentation_mode_helper_matrix(self, monkeypatch, tmp_path):
+        """_skills_presentation_mode: default, alias, precedence, case-tolerance, validation."""
+        from agent.skill_utils import _skills_presentation_mode, _raw_config_cache_clear
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        cfg = tmp_path / "config.yaml"
+        assert _skills_presentation_mode() == "full"  # no config at all
+        cfg.write_text("skills:\n  presentation: Essential-Only\n"); _raw_config_cache_clear()
+        assert _skills_presentation_mode() == "essential-only"  # case-tolerant
+        cfg.write_text("skills:\n  presentation: \"off\"\n"); _raw_config_cache_clear()
+        assert _skills_presentation_mode() == "off"  # quoted string spelling
+        cfg.write_text("skills:\n  presentation: on\n"); _raw_config_cache_clear()
+        assert _skills_presentation_mode() == "full"  # bare 'on' -> YAML True -> full
+        cfg.write_text("skills:\n  presentation: bogus\n"); _raw_config_cache_clear()
+        assert _skills_presentation_mode() == "full"  # unknown -> full, never silent
+
+
 
     def test_excludes_disabled_skills(self, monkeypatch, tmp_path):
         """Skills in the user's disabled list should not appear in the system prompt."""

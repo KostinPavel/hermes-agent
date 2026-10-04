@@ -842,6 +842,23 @@ skills:
 
 When on, skill writes are staged under `~/.hermes/pending/skills/` and reviewed with `/skills pending`, `/skills diff <id>`, `/skills approve <id>`, `/skills reject <id>` — from the CLI or any messaging platform. Toggle at runtime with `/skills approval on|off`. Memory has the same gate (`memory.write_approval`, below). Full walkthrough: [Gating agent skill writes](./features/skills.md#gating-agent-skill-writes-skillswrite_approval).
 
+### System-prompt skill index (`skills.presentation`)
+
+Controls how the static `<available_skills>` skill index renders in the system prompt:
+
+```yaml
+skills:
+  presentation: full   # full | essential-only | off (default: full)
+```
+
+| Value | Rendered as |
+|---|---|
+| `full` | Category headers with per-skill descriptions (default) |
+| `essential-only` | Only essential skills (never-disableable, e.g. `hermes-agent`) |
+| `off` | No index block — surrounding skill-loading guidance stays |
+
+Unknown values fall back to `full` with a warning. (Renamed from the draft-era `skills.prompt_index` before merge — never shipped, no alias kept.) Read when the system prompt is built (applies to the next session) and part of the prompt cache key. Full walkthrough: [System-prompt skill index](./features/skills.md#system-prompt-skill-index-skillspresentation).
+
 ## Memory Configuration
 
 ```yaml

@@ -1399,22 +1399,105 @@ def _label_visible_entries(visible_entries: list[dict], skills_by_category: dict
         skills_by_category.setdefault(category, []).append((entry["load_name"], desc))
 
 
+_SKILLS_GUIDANCE_TAIL = "Only proceed without loading a skill if genuinely none are relevant to the task."
+
+
+def _skills_guidance_body(available_tools: "set[str] | None") -> str:
+    """The '## Skills' loading-guidance paragraph (before the ``<available_skills>`` block).
+
+    Split from ``_render_skills_index`` so ``skills.presentation=off`` can keep the
+    surrounding guidance while omitting the index block (#131337).
+    """
+    # Don't name web_search when the session has no web tools (dangling reference).
+    _basic_tools = "terminal" if available_tools is not None and "web_search" not in available_tools else "web_search or terminal"
+    return (
+        "Before replying, scan the skills below. If a skill matches or is even partially relevant to your "
+        "task, you MUST load it with skill_view(name) and follow its instructions. Err on the side of "
+        "loading — it is always better to have context you don't need than to miss critical steps, pitfalls, "
+        "or established workflows. Skills contain specialized knowledge — API endpoints, tool-specific "
+        "commands, and proven workflows that outperform general-purpose approaches. Load the skill "
+        f"even if you think you could handle the task with basic tools like {_basic_tools}. "
+        "Skills also encode the user's preferred approach, conventions, and quality standards for tasks like "
+        "code review, planning, and testing — load them even for tasks you already know how to do, because "
+        "the skill defines how it should be done here.\n"
+        "If a skill has issues, fix it with skill_manage(action='patch').\n"
+        "After difficult/iterative tasks, offer to save as a skill. If a skill you loaded was missing steps, "
+        "had wrong commands, or needed pitfalls you discovered, update it before finishing.\n"
+    )
+
+
+def _skills_off_guidance(available_tools: "set[str] | None") -> str:
+    """System-prompt text for ``skills.presentation=off``: guidance without the index block.
+
+    Single builder for both call sites (the renderer and the inner short-circuit) so
+    the two paths cannot drift, oneshot included. Names the discovery owner —
+    "scan the skills below" would dangle with no ``<available_skills>`` block present.
+    """
+    from agent.oneshot_footprint import ONESHOT_SKILLS_LOAD_GUIDANCE, is_single_query_session
+    owner_note = (
+        "No static <available_skills> index is rendered in this mode — discover skills with "
+        "skills_list, or via a retrieval plugin's injected block, then load with skill_view(name).\n"
+    )
+    if is_single_query_session():
+        return ONESHOT_SKILLS_LOAD_GUIDANCE + "\n" + owner_note
+    return (
+        "## Skills\n"
+        + _skills_guidance_body(available_tools)
+        + "\n"
+        + owner_note
+        + _SKILLS_GUIDANCE_TAIL
+    )
+
+
 def _render_skills_index(
     skills_by_category: dict[str, list[tuple[str, str]]], category_descriptions: dict[str, str],
     compact_categories: "frozenset[str] | None", available_tools: "set[str] | None", unloadable: "list[str]" = (),
+    presentation: str = "full",
 ) -> str:
     """Render the ## Skills block; "" when there is nothing to list. *unloadable* names (different skills
-    sharing a name AND relative path within one tier — one root or several) get a rename note instead of a row skill_view would refuse."""
+    sharing a name AND relative path within one tier — one root or several) get a rename note instead of a row
+    skill_view would refuse.
+
+    ``presentation`` (``skills.presentation`` config): ``full`` — category headers
+    with descriptions; ``essential-only`` — only ``ESSENTIAL_SKILLS`` entries;
+    ``off`` — no ``<available_skills>`` block, loading guidance only (#131337).
+    """
+    if presentation == "essential-only":
+        from agent.skill_utils import ESSENTIAL_SKILLS
+        skills_by_category = {
+            cat: [(n, d) for n, d in entries if n in ESSENTIAL_SKILLS]
+            for cat, entries in skills_by_category.items()
+        }
+        skills_by_category = {c: e for c, e in skills_by_category.items() if e}
+        if not skills_by_category:
+            presentation = "off"  # nothing essential on disk — guidance stays
+    from agent.oneshot_footprint import ONESHOT_SKILLS_LOAD_GUIDANCE, is_single_query_session
+    if presentation == "off":
+        # Normally short-circuited in _build_skills_system_prompt_inner before the
+        # scan; kept here so the renderer honors its full contract for direct calls
+        # and unit tests. Both paths share _skills_off_guidance (oneshot included).
+        return _skills_off_guidance(available_tools)
     if not skills_by_category:
         return ""
     # Demoted categories collapse to one names-only line. NEVER drop entries — agent-created skills are the
     # model's project memory and it won't rediscover them via skills_list. Nested categories follow their parent.
-    demoted = frozenset(cat for cat in skills_by_category if cat.split("/", 1)[0] in (compact_categories or frozenset()))
-    hidden_note = (
-        "\n(Categories marked [names only] are outside the current coding "
-        "context, so their descriptions are omitted — the skills work "
-        "normally and load with skill_view(name) as usual.)"
-    ) if demoted else ""
+    if presentation == "essential-only":
+        demoted = frozenset()  # the floor keeps full descriptions — tiny and load-bearing
+    else:
+        demoted = frozenset(cat for cat in skills_by_category if cat.split("/", 1)[0] in (compact_categories or frozenset()))
+    if presentation == "essential-only":
+        hidden_note = (
+            "\n(Only essential skills are listed because skills.presentation=essential-only — "
+            "discover the rest with skills_list; load with skill_view(name) as usual.)"
+        )
+    elif demoted:
+        hidden_note = (
+            "\n(Categories marked [names only] are outside the current coding "
+            "context, so their descriptions are omitted — the skills work "
+            "normally and load with skill_view(name) as usual.)"
+        )
+    else:
+        hidden_note = ""
     if unloadable:
         hidden_note += (f"\n(A copy of {', '.join(unloadable)} is not listed: it shares both its name and its path "
                         "with a different skill in the same skills directory tier (e.g. another external_dirs entry), "
@@ -1434,7 +1517,6 @@ def _render_skills_index(
             if name not in seen:
                 seen.add(name)
                 index_lines.append(f"    - {name}: {desc}" if desc else f"    - {name}")
-    from agent.oneshot_footprint import ONESHOT_SKILLS_LOAD_GUIDANCE, is_single_query_session
     if is_single_query_session():
         return (
             ONESHOT_SKILLS_LOAD_GUIDANCE
@@ -1443,23 +1525,12 @@ def _render_skills_index(
         )
     return (
         "## Skills\n"
-        "Before replying, scan the skills below. If a skill matches or is even partially relevant to your "
-        "task, you MUST load it with skill_view(name) and follow its instructions. Err on the side of "
-        "loading — it is always better to have context you don't need than to miss critical steps, pitfalls, "
-        "or established workflows. Skills contain specialized knowledge — API endpoints, tool-specific "
-        "commands, and proven workflows that outperform general-purpose approaches. Load the skill "
-        f"even if you think you could handle the task with basic tools like {_basic_tools}. "
-        "Skills also encode the user's preferred approach, conventions, and quality standards for tasks like "
-        "code review, planning, and testing — load them even for tasks you already know how to do, because "
-        "the skill defines how it should be done here.\n"
-        "If a skill has issues, fix it with skill_manage(action='patch').\n"
-        "After difficult/iterative tasks, offer to save as a skill. If a skill you loaded was missing steps, "
-        "had wrong commands, or needed pitfalls you discovered, update it before finishing.\n"
-        "\n"
+        + _skills_guidance_body(available_tools)
+        + "\n"
         "<available_skills>\n"
         + "\n".join(index_lines) + "\n"
         "</available_skills>\n\n"
-        "Only proceed without loading a skill if genuinely none are relevant to the task."
+        + _SKILLS_GUIDANCE_TAIL
         + hidden_note
     )
 
@@ -1473,6 +1544,17 @@ def _build_skills_system_prompt_inner(
     skills_dir: "Path", extra_roots: "list[tuple[int, Path]]", available_tools: "set[str] | None",
     available_toolsets: "set[str] | None", compact_categories: "frozenset[str] | None",
 ) -> str:
+    # Generic presentation knob: skills.presentation (full | essential-only | off)
+    # selects how the static skill index renders. Plugin-agnostic by design
+    # (plugins/AGENTS.md: never hardcode plugin-specific logic in core): a retrieval
+    # plugin or external tool manages skill discovery in modes that shrink the block.
+    from agent.skill_utils import _skills_presentation_mode
+    presentation = _skills_presentation_mode()
+    if presentation == "off":
+        # No index block: the surrounding skill-loading guidance stays (#131337).
+        # Short-circuit before the scan — the guidance text has no dependency on it.
+        logger.debug("skills.presentation=off in config.yaml, keeping skill guidance without the <available_skills> index")
+        return _skills_off_guidance(available_tools)
     # The resolved platform is part of the key: per-platform disabled-skill lists need distinct cache entries.
     _platform_hint = _current_session_platform_hint()
     disabled = get_disabled_skill_names(_platform_hint or None)
@@ -1481,7 +1563,7 @@ def _build_skills_system_prompt_inner(
         tuple(sorted(str(t) for t in (available_tools or set()))),
         tuple(sorted(str(ts) for ts in (available_toolsets or set()))),
         _platform_hint, tuple(sorted(disabled)), tuple(sorted(compact_categories or ())),
-        _oneshot_prompt_variant(),
+        _oneshot_prompt_variant(), presentation,
     )
     snapshot = _load_skills_snapshot(skills_dir)
     app_gated = snapshot is not None and any(
@@ -1543,7 +1625,7 @@ def _build_skills_system_prompt_inner(
             logger.debug("Could not write skills prompt snapshot: %s", e)
 
     unloadable = sorted({e["name"] for e in visible_entries if not e["load_name"]})
-    result = _render_skills_index(skills_by_category, category_descriptions, compact_categories, available_tools, unloadable)
+    result = _render_skills_index(skills_by_category, category_descriptions, compact_categories, available_tools, unloadable, presentation)
     with _SKILLS_PROMPT_CACHE_LOCK:
         _SKILLS_PROMPT_CACHE[cache_key] = result
         _SKILLS_PROMPT_CACHE.move_to_end(cache_key)

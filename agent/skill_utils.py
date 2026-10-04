@@ -242,6 +242,42 @@ def _skills_cfg_get(key: str) -> Any:
     return skills_cfg.get(key) if skills_cfg is not None else None
 
 
+_SKILLS_PRESENTATION_MODES: tuple = ("full", "essential-only", "off")
+
+
+def _skills_presentation_mode() -> str:
+    """How the static skill index renders in the system prompt.
+
+    ``skills.presentation`` in config.yaml: ``full`` (default) — category headers
+    with descriptions; ``essential-only`` — only ``ESSENTIAL_SKILLS`` entries;
+    ``off`` — no ``<available_skills>`` block, surrounding loading guidance stays
+    (#131337). A user-facing compact/names-only mode is deliberately NOT shipped
+    here — the demotion mechanism it would reuse already exists for coding
+    posture, and such a knob deserves its own design/PR.
+
+    Renamed from the draft-era ``skills.prompt_index`` before merge (never
+    shipped, so no legacy alias is kept). Unknown values fall back to ``full``
+    — never silently drop the index.
+    """
+    raw = _skills_cfg_get("presentation")
+    if raw is None:
+        return "full"
+    # YAML 1.1 parses bare off/on/yes/no as booleans: presentation: off arrives as
+    # False, on as True. Accept both the boolean and the quoted-string spelling.
+    if raw is False:
+        return "off"
+    if raw is True:
+        return "full"
+    mode = str(raw).strip().lower()
+    if mode not in _SKILLS_PRESENTATION_MODES:
+        logger.warning(
+            "Unknown skills.presentation=%r in config.yaml (valid: %s); using 'full'",
+            raw, ", ".join(_SKILLS_PRESENTATION_MODES),
+        )
+        return "full"
+    return mode
+
+
 def _expand_path(entry: str) -> Path:
     """Expand ``~`` and ``${VAR}`` in a config path entry."""
     return Path(os.path.expanduser(os.path.expandvars(entry)))
